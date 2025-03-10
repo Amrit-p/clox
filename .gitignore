@@ -1,0 +1,4 @@
+*.txt
+*.json
+compiled/
+.vscode/
