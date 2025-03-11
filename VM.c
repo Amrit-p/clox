@@ -7,21 +7,12 @@
 #include "object.h"
 #include "helper.h"
 
-#define STACK_SIZE 256
-
-Stack *init_stack()
-{
-    Stack *stack = calloc(1, sizeof(Stack));
-    init_array(stack);
-    return stack;
-}
 VM *init_vm(Compiler *compiler)
 {
     VM *vm = calloc(1, sizeof(VM));
 
-    vm->stack = init_stack();
-    vm->sp = vm->stack->items;
-
+    vm->sp = vm->stack.items;
+    vm->file_path = compiler->file_path;
     vm->values = compiler->values;
     vm->ip = compiler->function->chunk->items;
     vm->globals = compiler->globals;
@@ -33,14 +24,7 @@ VM *init_vm(Compiler *compiler)
 }
 void vm_free(VM *vm)
 {
-    array_free(vm->stack);
-    free(vm->stack);
     free(vm);
-}
-
-Value vm_stack_peek(VM *vm, size_t offset)
-{
-    return array_at(vm->stack, offset);
 }
 
 char *value_typeof(Value value)
@@ -60,6 +44,8 @@ char *value_typeof(Value value)
         {
         case OBJ_STRING:
             return "String";
+        case OBJ_FUNCTION:
+            return "Function";
         default:
             return "Object";
         }
@@ -79,29 +65,27 @@ VM_Error vm_interpret(VM *vm)
 {
     vm->ip = VM_CURRENT_CHUNK_BASE;
 
-#define VM_STACK_PUSH(value)                     \
-    do                                           \
-    {                                            \
-        if (array_size(vm->stack) >= STACK_SIZE) \
-        {                                        \
-            vm->message = "stack overflow";      \
-            return VM_STACK_OVERFLOW;            \
-        }                                        \
-        array_push(vm->stack, value);            \
-        if (vm->sp == NULL)                      \
-            vm->sp = vm->stack->items;           \
-        vm->sp++;                                \
+#define VM_STACK_PUSH(value)                            \
+    do                                                  \
+    {                                                   \
+        if (vm->stack.count >= STACK_SIZE)              \
+        {                                               \
+            vm->message = "stack overflow";             \
+            return VM_STACK_OVERFLOW;                   \
+        }                                               \
+        vm->stack.items[(vm->stack).count++] = (value); \
+        vm->sp++;                                       \
     } while (0)
 
 #define VM_STACK_POP(ident)                  \
     do                                       \
     {                                        \
-        if (array_size(vm->stack) == 0)      \
+        if (vm->stack.count == 0)            \
         {                                    \
             vm->message = "stack underflow"; \
             return VM_STACK_UNDERFLOW;       \
         }                                    \
-        (void)array_pop(vm->stack);          \
+        (void)array_pop(&vm->stack);         \
         vm->sp--;                            \
         ident = *vm->sp;                     \
     } while (0)
@@ -109,7 +93,7 @@ VM_Error vm_interpret(VM *vm)
 #define VM_STACK_PEEK(ident, offset)         \
     do                                       \
     {                                        \
-        if (array_size(vm->stack) == 0)      \
+        if (vm->stack.count == 0)            \
         {                                    \
             vm->message = "stack underflow"; \
             return VM_STACK_UNDERFLOW;       \
@@ -148,7 +132,7 @@ VM_Error vm_interpret(VM *vm)
 #define LOGICAL_OP(op)                                                       \
     do                                                                       \
     {                                                                        \
-        if (array_size(vm->stack) < 2)                                       \
+        if (vm->stack.count < 2)                                             \
         {                                                                    \
             vm->message = "stack underflow";                                 \
             return VM_STACK_UNDERFLOW;                                       \
@@ -184,7 +168,7 @@ VM_Error vm_interpret(VM *vm)
 #define ARITHMETIC_OP(op, AS)                                       \
     do                                                              \
     {                                                               \
-        if (array_size(vm->stack) < 2)                              \
+        if (vm->stack.count < 2)                                    \
         {                                                           \
             vm->message = "stack underflow";                        \
             return VM_STACK_UNDERFLOW;                              \
@@ -274,14 +258,14 @@ VM_Error vm_interpret(VM *vm)
             byte slot = VM_READ_BYTE();
             Value value;
             VM_STACK_PEEK(value, 0);
-            array_at(vm->stack, slot) = value;
+            array_at(&vm->stack, slot) = value;
             break;
         }
         case OP_GET_LOCAL:
         {
             byte slot = VM_READ_BYTE();
             Value name = VM_READ_CONSTANT();
-            Value value = array_at(vm->stack, slot);
+            Value value = array_at(&vm->stack, slot);
             value.row = name.row;
             value.col = name.col;
             VM_STACK_PUSH(value);

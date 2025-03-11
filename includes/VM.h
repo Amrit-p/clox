@@ -5,22 +5,27 @@
 
 #define VM_CURRENT_CHUNK (vm->function->chunk)
 #define VM_CURRENT_CHUNK_BASE (vm->function->chunk->items)
+#define STACK_SIZE 256
 
 typedef struct
 {
-    Value *items;
+    Value items[STACK_SIZE];
     size_t count;
-    size_t capacity;
 } Stack;
 
-
+typedef struct
+{
+    ObjFunction *function;
+    uint8_t *ip;
+    Value *slots;
+} CallFrame;
 
 typedef struct
 {
     Values *values;
-    Stack *stack;
+    Stack stack;
     Value *sp;
-    byte *ip;
+    uint8_t *ip;
     int row;
     int col;
     char *message;
