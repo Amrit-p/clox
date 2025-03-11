@@ -13,6 +13,8 @@
 #include "log.h"
 #include "AST.h"
 #include <errno.h>
+#include "compiler.h"
+
 #define ERROR_PREFIX "Error: "
 
 static char *readFile(const char *path)
@@ -87,15 +89,17 @@ int main(int argc, char *argv[])
     }
     else if (parser->had_error == 0)
     {
-        VM *vm = init_vm();
-        vm->file_path = lexer->file_path;
+        Compiler compiler = {0};
+        init_compiler(&compiler, TYPE_SCRIPT);
+        compiler.file_path = lexer->file_path;
         log_info("converting AST to bytecode");
-        ast_to_byte(ast, vm);
+        ast_to_byte(ast, &compiler);
         free(source);
 
-        if (vm->had_error == false)
+        if (compiler.had_error == false)
         {
-            chunk_push(vm->chunk, OP_RETURN);
+            compiler_end(&compiler);
+
             char *bytecode_path = "bytecode.txt";
             FILE *bytefd = fopen(bytecode_path, "wb");
             if (bytefd == NULL)
@@ -104,10 +108,11 @@ int main(int argc, char *argv[])
             }
             else
             {
-                vm_dump(vm, bytefd);
+                compiler_dump(&compiler, bytefd);
                 fclose(bytefd);
             }
             log_info("starting interpreting...");
+            VM *vm = init_vm(&compiler);
             VM_Error error = vm_interpret(vm);
             switch (error)
             {
@@ -124,11 +129,12 @@ int main(int argc, char *argv[])
             default:
                 break;
             }
+            compiler_free(&compiler);
+            vm_free(vm);
         }
-        vm_free(vm);
         log_info("finished interpreting");
-        ast_free(ast);
     }
+    ast_free(ast);
     parser_free(parser);
     lexer_free(lexer);
 }

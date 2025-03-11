@@ -15,41 +15,29 @@ Stack *init_stack()
     init_array(stack);
     return stack;
 }
-VM *init_vm()
+VM *init_vm(Compiler *compiler)
 {
     VM *vm = calloc(1, sizeof(VM));
-    vm->values = init_values();
-    vm->chunk = init_chunk();
+
     vm->stack = init_stack();
-    vm->strings = init_table();
-    vm->globals = init_table();
-    vm->variables = init_table();
-    vm->ip = vm->chunk->items;
     vm->sp = vm->stack->items;
-    // vm->function = new_function();
-    // vm->function->name = new_string("main", 4);
-    // vm->type = TYPE_SCRIPT;
-    // vm->function->chunk = init_chunk();
+
+    vm->values = compiler->values;
+    vm->ip = compiler->function->chunk->items;
+    vm->globals = compiler->globals;
+    vm->strings = compiler->strings;
+    vm->variables = compiler->variables;
+    vm->function = compiler->function;
+
     return vm;
 }
 void vm_free(VM *vm)
 {
-    chunk_free(vm->chunk);
-    values_free(vm->values);
     array_free(vm->stack);
     free(vm->stack);
-    table_free(vm->strings);
-    table_free(vm->globals);
-    table_free(vm->variables);
     free(vm);
 }
-void vm_dump(VM *vm, FILE *stream)
-{
-    fprintf(stream, "==== .data ====\n");
-    values_dump(vm->values, stream);
-    fprintf(stream, "==== .text ====\n");
-    chunk_dump(vm->chunk, stream);
-}
+
 Value vm_stack_peek(VM *vm, size_t offset)
 {
     return array_at(vm->stack, offset);
@@ -89,7 +77,7 @@ bool is_falsey(Value value)
 }
 VM_Error vm_interpret(VM *vm)
 {
-    vm->ip = vm->chunk->items;
+    vm->ip = VM_CURRENT_CHUNK_BASE;
 
 #define VM_STACK_PUSH(value)                     \
     do                                           \
@@ -240,7 +228,7 @@ VM_Error vm_interpret(VM *vm)
             printf("]");
         }
         printf("\n");
-        chunk_print_instruction(vm->chunk, (size_t)(vm->ip - vm->chunk->items), stdout);
+        chunk_print_instruction(VM_CURRENT_CHUNK, (size_t)(vm->ip - VM_CURRENT_CHUNK_BASE), stdout);
 #endif
         byte instruction = VM_READ_BYTE();
         switch (instruction)
@@ -261,7 +249,7 @@ VM_Error vm_interpret(VM *vm)
         case OP_JMP:
         {
             uint16_t offset = VM_READ_SHORT();
-            vm->ip = vm->chunk->items + offset;
+            vm->ip = VM_CURRENT_CHUNK_BASE + offset;
             break;
         }
         case OP_JMP_IF_FALSE:
@@ -271,7 +259,7 @@ VM_Error vm_interpret(VM *vm)
             VM_STACK_PEEK(value, 0);
             bool fval = is_falsey(value);
             if (fval)
-                vm->ip = vm->chunk->items + offset;
+                vm->ip = VM_CURRENT_CHUNK_BASE + offset;
             break;
         }
         case OP_POP:
@@ -344,9 +332,9 @@ VM_Error vm_interpret(VM *vm)
         }
         case OP_RETURN:
         {
-            // Value value = {0};
-            // VM_STACK_POP(value);
-            // (void)value;
+            Value value = {0};
+            VM_STACK_POP(value);
+            (void)value;
             return VM_OK;
         }
         case OP_CONSTANT:
@@ -442,7 +430,7 @@ VM_Error vm_interpret(VM *vm)
             break;
         }
         default:
-            fprintf(stderr, "[ERROR] illegal instruction pointer(%zu)\n", (size_t)(vm->ip - vm->chunk->items) - 1);
+            fprintf(stderr, "[ERROR] illegal instruction pointer(%zu)\n", (size_t)(vm->ip - VM_CURRENT_CHUNK_BASE) - 1);
             return VM_ILLEGAL_INSTRUCTION;
         }
     }
@@ -453,21 +441,4 @@ VM_Error vm_interpret(VM *vm)
 #undef VM_STACK_PUSH
 #undef VM_STACK_POP
 #undef VM_TYPE_ERROR
-}
-int vm_resolve_local(VM *vm, Token token)
-{
-    int i = vm->local_count - 1;
-    for (; i >= 0; i--)
-    {
-        Local *local = &vm->locals[i];
-        if (token_equal(token, local->name))
-        {
-            if (local->depth == -1)
-            {
-                return -2;
-            }
-            break;
-        }
-    }
-    return i;
 }

@@ -7,36 +7,36 @@
 #include <string.h>
 #define AST_ERROR_PREFIX_FORMART "CompileError at %s:%zu:%zu"
 
-#define AST_REDEC_ERROR(vm, token)                                                \
+#define AST_REDEC_ERROR(compiler, token)                                                \
     do                                                                            \
     {                                                                             \
-        (vm)->had_error = true;                                                   \
+        (compiler)->had_error = true;                                                   \
         fprintf(stderr, AST_ERROR_PREFIX_FORMART " '%.*s' is already declared\n", \
-                (vm)->file_path,                                                  \
+                (compiler)->file_path,                                                  \
                 (token).row,                                                      \
                 (token).col,                                                      \
                 (int)(token).length,                                              \
                 (token).start);                                                   \
     } while (0)
 
-#define AST_REF_ERROR(vm, token)                                             \
+#define AST_REF_ERROR(compiler, token)                                             \
     do                                                                       \
     {                                                                        \
-        (vm)->had_error = true;                                              \
+        (compiler)->had_error = true;                                              \
         fprintf(stderr, AST_ERROR_PREFIX_FORMART " '%.*s' is not defined\n", \
-                (vm)->file_path,                                             \
+                (compiler)->file_path,                                             \
                 (token).row,                                                 \
                 (token).col,                                                 \
                 (int)(token).length,                                         \
                 (token).start);                                              \
     } while (0)
 
-#define AST_VAR_SELF_INIT(vm, token)                                                                          \
+#define AST_VAR_SELF_INIT(compiler, token)                                                                          \
     do                                                                                                        \
     {                                                                                                         \
-        vm->had_error = true;                                                                                 \
+        compiler->had_error = true;                                                                                 \
         fprintf(stderr, AST_ERROR_PREFIX_FORMART " cannot read variable '%.*s' in its own initialization.\n", \
-                (vm)->file_path,                                                                              \
+                (compiler)->file_path,                                                                              \
                 (token).row,                                                                                  \
                 (token).col,                                                                                  \
                 (int)(token).length,                                                                          \
@@ -253,221 +253,221 @@ void ast_free(AST *ast)
         free(ast->name);
     free(ast);
 }
-size_t ast_emit_jump(VM *vm, OpCode instruction)
+size_t ast_emit_jump(Compiler *compiler, OpCode instruction)
 {
-    chunk_push(vm->chunk, instruction);
-    chunk_push(vm->chunk, 0xff);
-    chunk_push(vm->chunk, 0xff);
-    return array_size(vm->chunk) - 2;
+    chunk_push(compiler->function->chunk, instruction);
+    chunk_push(compiler->function->chunk, 0xff);
+    chunk_push(compiler->function->chunk, 0xff);
+    return array_size(compiler->function->chunk) - 2;
 }
-void ast_emit_loop(VM *vm, size_t loop_start)
+void ast_emit_loop(Compiler *compiler, size_t loop_start)
 {
-    chunk_push(vm->chunk, OP_LOOP);
-    size_t offset = array_size(vm->chunk) - loop_start + 2;
+    chunk_push(compiler->function->chunk, OP_LOOP);
+    size_t offset = array_size(compiler->function->chunk) - loop_start + 2;
     if (offset > UINT16_MAX)
     {
-        vm->had_error = true;
+        compiler->had_error = true;
         fprintf(stderr, "Loop body too large.\n");
     }
-    chunk_push(vm->chunk, (offset >> 8) & 0xff);
-    chunk_push(vm->chunk, offset & 0xff);
+    chunk_push(compiler->function->chunk, (offset >> 8) & 0xff);
+    chunk_push(compiler->function->chunk, offset & 0xff);
 }
-void ast_patch_jump(VM *vm, size_t offset)
+void ast_patch_jump(Compiler *compiler, size_t offset)
 {
-    size_t jmp = array_size(vm->chunk);
+    size_t jmp = array_size(compiler->function->chunk);
     if (jmp > UINT16_MAX)
     {
-        vm->had_error = true;
+        compiler->had_error = true;
         fprintf(stderr, "Too much code to jump over.\n");
     }
-    array_at(vm->chunk, offset) = (jmp >> 8) & 0xff;
-    array_at(vm->chunk, offset + 1) = jmp & 0xff;
+    array_at(compiler->function->chunk, offset) = (jmp >> 8) & 0xff;
+    array_at(compiler->function->chunk, offset + 1) = jmp & 0xff;
 }
-void ast_patch_jump_with(VM *vm, size_t offset, size_t with)
+void ast_patch_jump_with(Compiler *compiler, size_t offset, size_t with)
 {
     if (with > UINT16_MAX)
     {
-        vm->had_error = true;
+        compiler->had_error = true;
         fprintf(stderr, "Too much code to jump over.\n");
     }
-    array_at(vm->chunk, offset) = (with >> 8) & 0xff;
-    array_at(vm->chunk, offset + 1) = with & 0xff;
+    array_at(compiler->function->chunk, offset) = (with >> 8) & 0xff;
+    array_at(compiler->function->chunk, offset + 1) = with & 0xff;
 }
-void ast_begin_scope(VM *vm)
+void ast_begin_scope(Compiler *compiler)
 {
-    vm->scope_depth++;
+    compiler->scope_depth++;
 }
-void ast_end_scope(VM *vm)
+void ast_end_scope(Compiler *compiler)
 {
-    vm->scope_depth--;
-    while (vm->local_count > 0 && vm->locals[vm->local_count - 1].depth > vm->scope_depth)
+    compiler->scope_depth--;
+    while (compiler->local_count > 0 && compiler->locals[compiler->local_count - 1].depth > compiler->scope_depth)
     {
-        chunk_push(vm->chunk, OP_POP);
-        vm->local_count--;
+        chunk_push(compiler->function->chunk, OP_POP);
+        compiler->local_count--;
     }
 }
-void ast_resolve_breaks(VM *vm)
+void ast_resolve_breaks(Compiler *compiler)
 {
-    for (byte i = 0; i < vm->break_stack_count; i++)
+    for (byte i = 0; i < compiler->break_stack_count; i++)
     {
-        byte offset = vm->break_stack[i];
-        ast_patch_jump(vm, offset);
+        byte offset = compiler->break_stack[i];
+        ast_patch_jump(compiler, offset);
     }
-    vm->break_stack_count = 0;
+    compiler->break_stack_count = 0;
 }
-void ast_resolve_continues(VM *vm, size_t loop_start)
+void ast_resolve_continues(Compiler *compiler, size_t loop_start)
 {
-    for (byte i = 0; i < vm->continue_stack_count; i++)
+    for (byte i = 0; i < compiler->continue_stack_count; i++)
     {
-        byte offset = vm->continue_stack[i];
-        ast_patch_jump_with(vm, offset, loop_start);
+        byte offset = compiler->continue_stack[i];
+        ast_patch_jump_with(compiler, offset, loop_start);
     }
-    vm->continue_stack_count = 0;
+    compiler->continue_stack_count = 0;
 }
-void ast_binary_to_byte(AST *binary, VM *vm)
+void ast_binary_to_byte(AST *binary, Compiler *compiler)
 {
     if (binary->token.type != TOKEN_ASSIGNMENT &&
         binary->token.type != TOKEN_AND &&
         binary->token.type != TOKEN_OR)
     {
-        ast_to_byte(binary->left, vm);
-        ast_to_byte(binary->right, vm);
+        ast_to_byte(binary->left, compiler);
+        ast_to_byte(binary->right, compiler);
     }
     switch (binary->token.type)
     {
     case TOKEN_PLUS:
-        chunk_push(vm->chunk, OP_ADD);
+        chunk_push(compiler->function->chunk, OP_ADD);
         break;
     case TOKEN_MINUS:
-        chunk_push(vm->chunk, OP_SUBTRACT);
+        chunk_push(compiler->function->chunk, OP_SUBTRACT);
         break;
     case TOKEN_MUL:
-        chunk_push(vm->chunk, OP_MULTIPLY);
+        chunk_push(compiler->function->chunk, OP_MULTIPLY);
         break;
     case TOKEN_DIV:
-        chunk_push(vm->chunk, OP_DIVIDE);
+        chunk_push(compiler->function->chunk, OP_DIVIDE);
         break;
     case TOKEN_MOD:
-        chunk_push(vm->chunk, OP_MOD);
+        chunk_push(compiler->function->chunk, OP_MOD);
         break;
     case TOKEN_EQUALS:
-        chunk_push(vm->chunk, OP_EQUAL);
+        chunk_push(compiler->function->chunk, OP_EQUAL);
         break;
     case TOKEN_ASSIGNMENT:
     {
-        ast_to_byte(binary->right, vm);
+        ast_to_byte(binary->right, compiler);
         int arg = -1;
-        if (vm->scope_depth > 0)
+        if (compiler->scope_depth > 0)
         {
-            arg = vm_resolve_local(vm, binary->left->token);
+            arg = compiler_resolve_local(compiler, binary->left->token);
             if (arg != -1)
             {
-                chunk_push(vm->chunk, OP_SET_LOCAL);
-                chunk_push(vm->chunk, (byte)arg);
+                chunk_push(compiler->function->chunk, OP_SET_LOCAL);
+                chunk_push(compiler->function->chunk, (byte)arg);
             }
         }
         if (arg == -1)
         {
-            ObjString *interned = table_find_string(vm->globals, binary->left->name);
+            ObjString *interned = table_find_string(compiler->globals, binary->left->name);
             if (interned == NULL)
-                AST_REF_ERROR(vm, binary->left->token);
+                AST_REF_ERROR(compiler, binary->left->token);
             Value str = OBJ_VAL(interned, binary->left->token.row, binary->left->token.col);
-            chunk_push(vm->chunk, OP_SET_GLOBAL);
-            chunk_push(vm->chunk, value_push(vm->values, str));
+            chunk_push(compiler->function->chunk, OP_SET_GLOBAL);
+            chunk_push(compiler->function->chunk, value_push(compiler->values, str));
         }
         break;
     }
     case TOKEN_NOT_EQUALS:
-        chunk_push(vm->chunk, OP_NOT_EQUAL);
+        chunk_push(compiler->function->chunk, OP_NOT_EQUAL);
         break;
     case TOKEN_LT:
-        chunk_push(vm->chunk, OP_LT);
+        chunk_push(compiler->function->chunk, OP_LT);
         break;
     case TOKEN_LTE:
-        chunk_push(vm->chunk, OP_LTE);
+        chunk_push(compiler->function->chunk, OP_LTE);
         break;
     case TOKEN_GT:
-        chunk_push(vm->chunk, OP_GT);
+        chunk_push(compiler->function->chunk, OP_GT);
         break;
     case TOKEN_GTE:
-        chunk_push(vm->chunk, OP_LTE);
+        chunk_push(compiler->function->chunk, OP_LTE);
         break;
     case TOKEN_AND:
     {
-        ast_to_byte(binary->left, vm);
-        size_t offset = ast_emit_jump(vm, OP_JMP_IF_FALSE);
-        chunk_push(vm->chunk, OP_POP);
-        ast_to_byte(binary->right, vm);
-        ast_patch_jump(vm, offset);
+        ast_to_byte(binary->left, compiler);
+        size_t offset = ast_emit_jump(compiler, OP_JMP_IF_FALSE);
+        chunk_push(compiler->function->chunk, OP_POP);
+        ast_to_byte(binary->right, compiler);
+        ast_patch_jump(compiler, offset);
         break;
     }
     case TOKEN_BITWISE_AND:
-        chunk_push(vm->chunk, OP_BITWISE_AND);
+        chunk_push(compiler->function->chunk, OP_BITWISE_AND);
         break;
     case TOKEN_OR:
     {
-        ast_to_byte(binary->left, vm);
-        size_t else_offset = ast_emit_jump(vm, OP_JMP_IF_FALSE);
-        size_t end_offset = ast_emit_jump(vm, OP_JMP);
-        ast_patch_jump(vm, else_offset);
-        chunk_push(vm->chunk, OP_POP);
-        ast_to_byte(binary->right, vm);
-        ast_patch_jump(vm, end_offset);
+        ast_to_byte(binary->left, compiler);
+        size_t else_offset = ast_emit_jump(compiler, OP_JMP_IF_FALSE);
+        size_t end_offset = ast_emit_jump(compiler, OP_JMP);
+        ast_patch_jump(compiler, else_offset);
+        chunk_push(compiler->function->chunk, OP_POP);
+        ast_to_byte(binary->right, compiler);
+        ast_patch_jump(compiler, end_offset);
         break;
     }
     case TOKEN_BITWISE_OR:
-        chunk_push(vm->chunk, OP_BITWISE_OR);
+        chunk_push(compiler->function->chunk, OP_BITWISE_OR);
         break;
     case TOKEN_LEFT_SHIFT:
-        chunk_push(vm->chunk, OP_LEFT_SHIFT);
+        chunk_push(compiler->function->chunk, OP_LEFT_SHIFT);
         break;
     case TOKEN_RIGHT_SHIFT:
-        chunk_push(vm->chunk, OP_RIGHT_SHIFT);
+        chunk_push(compiler->function->chunk, OP_RIGHT_SHIFT);
         break;
     default:
         ast_print(binary);
         NOTREACHABLE;
     }
 }
-void ast_unary_to_byte(AST *ast, VM *vm)
+void ast_unary_to_byte(AST *ast, Compiler *compiler)
 {
-    ast_to_byte(ast->value, vm);
+    ast_to_byte(ast->value, compiler);
     switch (ast->token.type)
     {
     case TOKEN_MINUS:
-        chunk_push(vm->chunk, OP_NEGATE);
+        chunk_push(compiler->function->chunk, OP_NEGATE);
         break;
     case TOKEN_NOT:
-        chunk_push(vm->chunk, OP_NOT);
+        chunk_push(compiler->function->chunk, OP_NOT);
         break;
     case TOKEN_BITWISE_NOT:
-        chunk_push(vm->chunk, OP_BITWISE_NOT);
+        chunk_push(compiler->function->chunk, OP_BITWISE_NOT);
         break;
     case TOKEN_DECREMENT:
     case TOKEN_INCREMENT:
     {
-        chunk_push(vm->chunk, OP_CONSTANT);
-        chunk_push(vm->chunk, value_push(vm->values, NUMBER_VAL(1, ast->token.row, ast->token.col)));
+        chunk_push(compiler->function->chunk, OP_CONSTANT);
+        chunk_push(compiler->function->chunk, value_push(compiler->values, NUMBER_VAL(1, ast->token.row, ast->token.col)));
 
         OpCode code = ast->token.type == TOKEN_INCREMENT ? OP_ADD : OP_SUBTRACT;
-        chunk_push(vm->chunk, code);
+        chunk_push(compiler->function->chunk, code);
 
         int arg = -1;
-        if (vm->scope_depth > 0)
+        if (compiler->scope_depth > 0)
         {
-            arg = vm_resolve_local(vm, ast->value->token);
+            arg = compiler_resolve_local(compiler, ast->value->token);
             if (arg != -1)
             {
-                chunk_push(vm->chunk, OP_SET_LOCAL);
-                chunk_push(vm->chunk, (byte)arg);
+                chunk_push(compiler->function->chunk, OP_SET_LOCAL);
+                chunk_push(compiler->function->chunk, (byte)arg);
             }
         }
         if (arg == -1)
         {
-            ObjString *interned = table_find_string(vm->globals, ast->value->name);
+            ObjString *interned = table_find_string(compiler->globals, ast->value->name);
             Value str = OBJ_VAL(interned, ast->value->token.row, ast->value->token.col);
-            chunk_push(vm->chunk, OP_SET_GLOBAL);
-            chunk_push(vm->chunk, value_push(vm->values, str));
+            chunk_push(compiler->function->chunk, OP_SET_GLOBAL);
+            chunk_push(compiler->function->chunk, value_push(compiler->values, str));
         }
         break;
     }
@@ -476,7 +476,7 @@ void ast_unary_to_byte(AST *ast, VM *vm)
         NOTREACHABLE;
     }
 }
-void ast_to_byte(AST *ast, VM *vm)
+void ast_to_byte(AST *ast, Compiler *compiler)
 {
     if (!ast)
         return;
@@ -486,68 +486,68 @@ void ast_to_byte(AST *ast, VM *vm)
     case AST_COMPOUND:
     {
         if (ast->type == AST_BLOCK)
-            ast_begin_scope(vm);
+            ast_begin_scope(compiler);
         for (size_t i = 0; i < array_size(&ast->childs); i++)
         {
             AST *child = array_at(&ast->childs, i);
-            ast_to_byte(child, vm);
+            ast_to_byte(child, compiler);
         }
         if (ast->type == AST_BLOCK)
         {
-            ast_end_scope(vm);
+            ast_end_scope(compiler);
         }
         break;
     }
     case AST_NUMBER:
     {
-        chunk_push(vm->chunk, OP_CONSTANT);
-        chunk_push(vm->chunk, value_push(vm->values, NUMBER_VAL(ast->number, ast->token.row, ast->token.col)));
+        chunk_push(compiler->function->chunk, OP_CONSTANT);
+        chunk_push(compiler->function->chunk, value_push(compiler->values, NUMBER_VAL(ast->number, ast->token.row, ast->token.col)));
         break;
     }
     case AST_STRING:
     {
-        chunk_push(vm->chunk, OP_CONSTANT);
-        ObjString *interned = table_find_string(vm->strings, ast->name);
+        chunk_push(compiler->function->chunk, OP_CONSTANT);
+        ObjString *interned = table_find_string(compiler->strings, ast->name);
         ObjString *obj = interned == NULL ? cstr_to_objstr(ast->name) : interned;
         Value str = OBJ_VAL(obj, ast->token.row, ast->token.col);
-        chunk_push(vm->chunk, value_push(vm->values, str));
-        table_set(vm->strings, AS_STRING(str), NULL_VAL(str.row, str.col));
+        chunk_push(compiler->function->chunk, value_push(compiler->values, str));
+        table_set(compiler->strings, AS_STRING(str), NULL_VAL(str.row, str.col));
         break;
     }
     case AST_BINARY:
     {
-        ast_binary_to_byte(ast, vm);
+        ast_binary_to_byte(ast, compiler);
         break;
     }
     case AST_UNARY:
     {
-        ast_unary_to_byte(ast, vm);
+        ast_unary_to_byte(ast, compiler);
         break;
     }
     case AST_SEQUENCEEXPR:
     {
         for (size_t i = 0; i < array_size(&ast->childs); i++)
         {
-            ast_to_byte(array_at(&ast->childs, i), vm);
+            ast_to_byte(array_at(&ast->childs, i), compiler);
         }
         break;
     }
     case AST_TRUE:
     {
-        chunk_push(vm->chunk, OP_CONSTANT);
-        chunk_push(vm->chunk, value_push(vm->values, BOOL_VAL(true, ast->token.row, ast->token.col)));
+        chunk_push(compiler->function->chunk, OP_CONSTANT);
+        chunk_push(compiler->function->chunk, value_push(compiler->values, BOOL_VAL(true, ast->token.row, ast->token.col)));
         break;
     }
     case AST_FALSE:
     {
-        chunk_push(vm->chunk, OP_CONSTANT);
-        chunk_push(vm->chunk, value_push(vm->values, BOOL_VAL(false, ast->token.row, ast->token.col)));
+        chunk_push(compiler->function->chunk, OP_CONSTANT);
+        chunk_push(compiler->function->chunk, value_push(compiler->values, BOOL_VAL(false, ast->token.row, ast->token.col)));
         break;
     }
     case AST_NULL:
     {
-        chunk_push(vm->chunk, OP_CONSTANT);
-        chunk_push(vm->chunk, value_push(vm->values, NULL_VAL(ast->token.row, ast->token.col)));
+        chunk_push(compiler->function->chunk, OP_CONSTANT);
+        chunk_push(compiler->function->chunk, value_push(compiler->values, NULL_VAL(ast->token.row, ast->token.col)));
         break;
     }
     case AST_STMT:
@@ -556,20 +556,20 @@ void ast_to_byte(AST *ast, VM *vm)
         {
         case TOKEN_PRINT:
         {
-            ast_to_byte(ast->value, vm);
-            chunk_push(vm->chunk, OP_PRINT);
+            ast_to_byte(ast->value, compiler);
+            chunk_push(compiler->function->chunk, OP_PRINT);
             break;
         }
         case TOKEN_BREAK:
         {
-            size_t offset = ast_emit_jump(vm, OP_JMP);
-            vm->break_stack[vm->break_stack_count++] = (byte)offset;
+            size_t offset = ast_emit_jump(compiler, OP_JMP);
+            compiler->break_stack[compiler->break_stack_count++] = (byte)offset;
             break;
         }
         case TOKEN_CONTINUE:
         {
-            size_t offset = ast_emit_jump(vm, OP_JMP);
-            vm->continue_stack[vm->continue_stack_count++] = (byte)offset;
+            size_t offset = ast_emit_jump(compiler, OP_JMP);
+            compiler->continue_stack[compiler->continue_stack_count++] = (byte)offset;
             break;
         }
         default:
@@ -580,189 +580,189 @@ void ast_to_byte(AST *ast, VM *vm)
     case AST_VAR:
     {
         int arg = -1;
-        if (vm->scope_depth > 0)
+        if (compiler->scope_depth > 0)
         {
-            for (int i = vm->local_count - 1; i >= 0; i--)
+            for (int i = compiler->local_count - 1; i >= 0; i--)
             {
-                Local *local = &vm->locals[i];
-                if (local->depth != -1 && local->depth < vm->scope_depth)
+                Local *local = &compiler->locals[i];
+                if (local->depth != -1 && local->depth < compiler->scope_depth)
                     break;
                 if (token_equal(ast->token, local->name))
-                    AST_REDEC_ERROR(vm, ast->token);
+                    AST_REDEC_ERROR(compiler, ast->token);
             }
-            Local *local = &vm->locals[vm->local_count++];
+            Local *local = &compiler->locals[compiler->local_count++];
             local->name = ast->token;
             local->depth = -1;
-            ast_to_byte(ast->value, vm);
-            vm->locals[vm->local_count - 1].depth = vm->scope_depth;
-            arg = vm_resolve_local(vm, ast->token);
+            ast_to_byte(ast->value, compiler);
+            compiler->locals[compiler->local_count - 1].depth = compiler->scope_depth;
+            arg = compiler_resolve_local(compiler, ast->token);
             if (arg != -1)
             {
-                chunk_push(vm->chunk, OP_SET_LOCAL);
-                chunk_push(vm->chunk, (byte)arg);
-                ObjString *interned = table_find_string(vm->variables, ast->name);
+                chunk_push(compiler->function->chunk, OP_SET_LOCAL);
+                chunk_push(compiler->function->chunk, (byte)arg);
+                ObjString *interned = table_find_string(compiler->variables, ast->name);
                 ObjString *obj = interned ? interned : cstr_to_objstr(ast->name);
                 Value str = OBJ_VAL(obj, ast->token.row, ast->token.col);
-                table_set(vm->variables, obj, str);
+                table_set(compiler->variables, obj, str);
             }
         }
         if (arg == -1)
         {
-            ObjString *interned = table_find_string(vm->globals, ast->name);
+            ObjString *interned = table_find_string(compiler->globals, ast->name);
             if (interned)
-                AST_REDEC_ERROR(vm, ast->token);
+                AST_REDEC_ERROR(compiler, ast->token);
             ObjString *obj = interned ? interned : cstr_to_objstr(ast->name);
             Value str = OBJ_VAL(obj, ast->token.row, ast->token.col);
-            table_set(vm->globals, obj, UNDEF_VAL(str.row, str.row));
-            ast_to_byte(ast->value, vm);
-            chunk_push(vm->chunk, OP_DEFINE_GLOBAL);
-            chunk_push(vm->chunk, value_push(vm->values, str));
-            table_set(vm->globals, obj, NULL_VAL(str.row, str.row));
+            table_set(compiler->globals, obj, UNDEF_VAL(str.row, str.row));
+            ast_to_byte(ast->value, compiler);
+            chunk_push(compiler->function->chunk, OP_DEFINE_GLOBAL);
+            chunk_push(compiler->function->chunk, value_push(compiler->values, str));
+            table_set(compiler->globals, obj, NULL_VAL(str.row, str.row));
         }
         break;
     }
     case AST_ID:
     {
         int arg = -1;
-        if (vm->scope_depth > 0)
+        if (compiler->scope_depth > 0)
         {
-            arg = vm_resolve_local(vm, ast->token);
+            arg = compiler_resolve_local(compiler, ast->token);
             if (arg != -1)
             {
-                chunk_push(vm->chunk, OP_GET_LOCAL);
-                chunk_push(vm->chunk, (byte)arg);
-                ObjString *interend = table_find_string(vm->variables, ast->name);
+                chunk_push(compiler->function->chunk, OP_GET_LOCAL);
+                chunk_push(compiler->function->chunk, (byte)arg);
+                ObjString *interend = table_find_string(compiler->variables, ast->name);
                 ObjString *obj = interend ? interend : cstr_to_objstr(ast->name);
                 Value str = OBJ_VAL(obj, ast->token.row, ast->token.col);
-                chunk_push(vm->chunk, value_push(vm->values, str));
+                chunk_push(compiler->function->chunk, value_push(compiler->values, str));
             }
         }
         if (arg == -1)
         {
-            ObjString *interned = table_find_string(vm->globals, ast->name);
+            ObjString *interned = table_find_string(compiler->globals, ast->name);
             if (interned == NULL)
-                AST_REF_ERROR(vm, ast->token);
+                AST_REF_ERROR(compiler, ast->token);
             if (interned)
             {
                 Value init;
-                table_get(vm->globals, interned, &init);
+                table_get(compiler->globals, interned, &init);
                 if (IS_UNDEF(init))
-                    AST_VAR_SELF_INIT(vm, ast->token);
+                    AST_VAR_SELF_INIT(compiler, ast->token);
             }
             Value str = OBJ_VAL(interned, ast->token.row, ast->token.col);
-            chunk_push(vm->chunk, OP_GET_GLOBAL);
-            chunk_push(vm->chunk, value_push(vm->values, str));
+            chunk_push(compiler->function->chunk, OP_GET_GLOBAL);
+            chunk_push(compiler->function->chunk, value_push(compiler->values, str));
         }
         break;
     }
     case AST_TERNARY:
     case AST_IF:
     {
-        ast_to_byte(ast->value, vm);
-        size_t then_offset = ast_emit_jump(vm, OP_JMP_IF_FALSE);
-        chunk_push(vm->chunk, OP_POP);
-        ast_to_byte(ast->left, vm);
-        ast_patch_jump(vm, then_offset);
+        ast_to_byte(ast->value, compiler);
+        size_t then_offset = ast_emit_jump(compiler, OP_JMP_IF_FALSE);
+        chunk_push(compiler->function->chunk, OP_POP);
+        ast_to_byte(ast->left, compiler);
+        ast_patch_jump(compiler, then_offset);
 
         if (ast->right)
         {
-            size_t else_offset = ast_emit_jump(vm, OP_JMP);
-            ast_patch_jump(vm, then_offset);
-            chunk_push(vm->chunk, OP_POP);
-            ast_to_byte(ast->right, vm);
-            ast_patch_jump(vm, else_offset);
+            size_t else_offset = ast_emit_jump(compiler, OP_JMP);
+            ast_patch_jump(compiler, then_offset);
+            chunk_push(compiler->function->chunk, OP_POP);
+            ast_to_byte(ast->right, compiler);
+            ast_patch_jump(compiler, else_offset);
         }
         break;
     }
     case AST_WHILE:
     {
-        size_t loop_start = array_size(vm->chunk);
-        ast_to_byte(ast->value, vm);
+        size_t loop_start = array_size(compiler->function->chunk);
+        ast_to_byte(ast->value, compiler);
 
-        size_t exit_jmp = ast_emit_jump(vm, OP_JMP_IF_FALSE);
-        chunk_push(vm->chunk, OP_POP);
-        ast_to_byte(ast->left, vm);
-        ast_emit_loop(vm, loop_start);
-        ast_patch_jump(vm, exit_jmp);
-        if (vm->break_stack_count == 0)
+        size_t exit_jmp = ast_emit_jump(compiler, OP_JMP_IF_FALSE);
+        chunk_push(compiler->function->chunk, OP_POP);
+        ast_to_byte(ast->left, compiler);
+        ast_emit_loop(compiler, loop_start);
+        ast_patch_jump(compiler, exit_jmp);
+        if (compiler->break_stack_count == 0)
         {
-            chunk_push(vm->chunk, OP_POP);
+            chunk_push(compiler->function->chunk, OP_POP);
         }
-        ast_resolve_breaks(vm);
-        ast_resolve_continues(vm, loop_start);
+        ast_resolve_breaks(compiler);
+        ast_resolve_continues(compiler, loop_start);
         break;
     }
     case AST_POSTFIX:
     {
-        ast_to_byte(ast->value, vm);
-        chunk_push(vm->chunk, OP_DUP);
-        chunk_push(vm->chunk, OP_CONSTANT);
-        chunk_push(vm->chunk, value_push(vm->values, NUMBER_VAL(1, ast->token.row, ast->token.col)));
+        ast_to_byte(ast->value, compiler);
+        chunk_push(compiler->function->chunk, OP_DUP);
+        chunk_push(compiler->function->chunk, OP_CONSTANT);
+        chunk_push(compiler->function->chunk, value_push(compiler->values, NUMBER_VAL(1, ast->token.row, ast->token.col)));
 
         OpCode code = ast->token.type == TOKEN_INCREMENT ? OP_ADD : OP_SUBTRACT;
-        chunk_push(vm->chunk, code);
+        chunk_push(compiler->function->chunk, code);
 
         int arg = -1;
-        if (vm->scope_depth > 0)
+        if (compiler->scope_depth > 0)
         {
-            arg = vm_resolve_local(vm, ast->value->token);
+            arg = compiler_resolve_local(compiler, ast->value->token);
             if (arg != -1)
             {
-                chunk_push(vm->chunk, OP_SET_LOCAL);
-                chunk_push(vm->chunk, (byte)arg);
+                chunk_push(compiler->function->chunk, OP_SET_LOCAL);
+                chunk_push(compiler->function->chunk, (byte)arg);
             }
         }
         if (arg == -1)
         {
-            ObjString *interned = table_find_string(vm->globals, ast->value->name);
+            ObjString *interned = table_find_string(compiler->globals, ast->value->name);
             if (interned == NULL)
-                AST_REF_ERROR(vm, ast->value->token);
+                AST_REF_ERROR(compiler, ast->value->token);
             Value str = OBJ_VAL(interned, ast->value->token.row, ast->value->token.col);
-            chunk_push(vm->chunk, OP_SET_GLOBAL);
-            chunk_push(vm->chunk, value_push(vm->values, str));
+            chunk_push(compiler->function->chunk, OP_SET_GLOBAL);
+            chunk_push(compiler->function->chunk, value_push(compiler->values, str));
         }
 
-        chunk_push(vm->chunk, OP_POP);
+        chunk_push(compiler->function->chunk, OP_POP);
         break;
     }
     case AST_FOR_LOOP:
     {
-        ast_begin_scope(vm);
+        ast_begin_scope(compiler);
 
         AST *initializer = array_at(&ast->childs, 0);
-        ast_to_byte(initializer, vm);
+        ast_to_byte(initializer, compiler);
 
-        size_t loop_start = array_size(vm->chunk);
+        size_t loop_start = array_size(compiler->function->chunk);
 
         AST *condition = array_at(&ast->childs, 1);
         size_t end_offset = 0;
         if (condition)
         {
-            ast_to_byte(condition, vm);
-            end_offset = ast_emit_jump(vm, OP_JMP_IF_FALSE);
-            chunk_push(vm->chunk, OP_POP);
+            ast_to_byte(condition, compiler);
+            end_offset = ast_emit_jump(compiler, OP_JMP_IF_FALSE);
+            chunk_push(compiler->function->chunk, OP_POP);
         }
 
-        ast_to_byte(ast->value, vm);
+        ast_to_byte(ast->value, compiler);
 
         AST *end_expr = array_at(&ast->childs, 2);
-        ast_to_byte(end_expr, vm);
+        ast_to_byte(end_expr, compiler);
 
-        ast_emit_loop(vm, loop_start);
+        ast_emit_loop(compiler, loop_start);
         if (condition)
-            ast_patch_jump(vm, end_offset);
+            ast_patch_jump(compiler, end_offset);
 
-        ast_resolve_breaks(vm);
-        ast_resolve_continues(vm, loop_start);
+        ast_resolve_breaks(compiler);
+        ast_resolve_continues(compiler, loop_start);
 
-        ast_end_scope(vm);
+        ast_end_scope(compiler);
         break;
     }
     case AST_FUNCTION_DECL:
     {
-        ast_begin_scope(vm);
-        
-        ast_end_scope(vm);
+        ast_begin_scope(compiler);
+
+        ast_end_scope(compiler);
         break;
     }
     default:

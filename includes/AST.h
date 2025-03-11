@@ -50,5 +50,5 @@ char *ast_type_to_str(int type);
 void ast_print(AST *root);
 size_t ast_push(AST *ast, AST *child);
 void ast_free(AST *ast);
-void ast_to_byte(AST *ast, VM *vm);
+void ast_to_byte(AST *ast, Compiler *compiler);
 #endif

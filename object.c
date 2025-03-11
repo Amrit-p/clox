@@ -56,5 +56,6 @@ ObjString *cstr_to_objstr(char *chars)
 ObjFunction *new_function()
 {
     ObjFunction *function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
+    function->chunk = init_chunk();
     return function;
 }
