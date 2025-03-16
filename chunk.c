@@ -71,8 +71,6 @@ const char *chunk_byte_to_str(byte instruction)
         return "OP_DUP";
     case OP_CALL:
         return "OP_CALL";
-    case OP_NULL:
-        return "OP_NULL";
     default:
         return "UNKNOWN";
     }
