@@ -12,14 +12,19 @@ VM *init_vm(Compiler *compiler)
     VM *vm = calloc(1, sizeof(VM));
 
     vm->sp = vm->stack.items;
+
     vm->file_path = compiler->file_path;
-    vm->values = compiler->values;
-    vm->ip = compiler->function->chunk->items;
     vm->globals = compiler->globals;
     vm->strings = compiler->strings;
     vm->variables = compiler->variables;
-    vm->function = compiler->function;
 
+    *vm->sp = OBJ_VAL(compiler->function, __LINE__, 0);
+    vm->sp++;
+
+    CallFrame *frame = &vm->frames[vm->frame_count++];
+    frame->function = compiler->function;
+    frame->ip = compiler->function->chunk->items;
+    frame->slots = vm->stack.items;
     return vm;
 }
 void vm_free(VM *vm)
@@ -63,48 +68,38 @@ bool is_falsey(Value value)
 }
 VM_Error vm_interpret(VM *vm)
 {
-    vm->ip = VM_CURRENT_CHUNK_BASE;
+    CallFrame *frame = &vm->frames[vm->frame_count - 1];
 
-#define VM_STACK_PUSH(value)                            \
-    do                                                  \
-    {                                                   \
-        if (vm->stack.count >= STACK_SIZE)              \
-        {                                               \
-            vm->message = "stack overflow";             \
-            return VM_STACK_OVERFLOW;                   \
-        }                                               \
-        vm->stack.items[(vm->stack).count++] = (value); \
-        vm->sp++;                                       \
+#define VM_CURRENT_CHUNK (frame->function->chunk)
+#define VM_CURRENT_CHUNK_BASE (frame->function->chunk->items)
+
+#define VM_STACK_PUSH(value)                \
+    do                                      \
+    {                                       \
+        *vm->sp = (value);                  \
+        vm->sp++;                           \
+        vm->stack.count++;                  \
     } while (0)
 
-#define VM_STACK_POP(ident)                  \
-    do                                       \
-    {                                        \
-        if (vm->stack.count == 0)            \
-        {                                    \
-            vm->message = "stack underflow"; \
-            return VM_STACK_UNDERFLOW;       \
-        }                                    \
-        (void)array_pop(&vm->stack);         \
-        vm->sp--;                            \
-        ident = *vm->sp;                     \
+#define VM_STACK_POP(ident) \
+    do                      \
+    {                       \
+        vm->sp--;           \
+        ident = *vm->sp;    \
+        vm->stack.count--;  \
     } while (0)
 
-#define VM_STACK_PEEK(ident, offset)         \
-    do                                       \
-    {                                        \
-        if (vm->stack.count == 0)            \
-        {                                    \
-            vm->message = "stack underflow"; \
-            return VM_STACK_UNDERFLOW;       \
-        }                                    \
-        ident = vm->sp[-1 - offset];         \
+#define VM_STACK_PEEK(ident, offset) \
+    do                               \
+    {                                \
+        ident = vm->sp[-1 - offset]; \
     } while (0)
 
-#define VM_READ_BYTE() (*(vm)->ip++)
-#define VM_READ_CONSTANT() (vm->values->items[VM_READ_BYTE()])
+#define VM_READ_BYTE() (*frame->ip++)
+#define VM_READ_CONSTANT() (frame->function->values->items[VM_READ_BYTE()])
 #define VM_READ_STRING() AS_STRING(VM_READ_CONSTANT())
-#define VM_READ_SHORT() (vm->ip += 2, (uint16_t)((vm->ip[-2] << 8) | vm->ip[-1]))
+#define VM_READ_SHORT() (frame->ip += 2, (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
+
 #define VM_TYPE_ERROR(must, given, _row, _col)                                          \
     do                                                                                  \
     {                                                                                   \
@@ -182,7 +177,7 @@ VM_Error vm_interpret(VM *vm)
             int row = !IS_NUMBER(a) ? a.row : b.row;                \
             int col = !IS_NUMBER(a) ? a.col : b.col;                \
             char *given_type = value_typeof(!IS_NUMBER(a) ? a : b); \
-            VM_TYPE_ERROR("Number", given_type, row, col);          \
+            VM_TYPE_ERROR("\"Number\"", given_type, row, col);      \
         }                                                           \
         VM_STACK_PUSH(NUMBER_VAL(AS(a) op AS(b), b.row, b.col));    \
     } while (0)
@@ -203,7 +198,8 @@ VM_Error vm_interpret(VM *vm)
     for (;;)
     {
 #ifdef DEBUG_TRACE_EXECUTION
-        Value *slot = vm->stack->items;
+        chunk_print_instruction(VM_CURRENT_CHUNK, (size_t)(frame->ip - VM_CURRENT_CHUNK_BASE), stdout);
+        Value *slot = vm->stack.items;
         printf("          ");
         for (; slot < vm->sp; slot++)
         {
@@ -212,11 +208,58 @@ VM_Error vm_interpret(VM *vm)
             printf("]");
         }
         printf("\n");
-        chunk_print_instruction(VM_CURRENT_CHUNK, (size_t)(vm->ip - VM_CURRENT_CHUNK_BASE), stdout);
+        getc(stdin);
 #endif
         byte instruction = VM_READ_BYTE();
         switch (instruction)
         {
+        case OP_CALL:
+        {
+            if (vm->frame_count == FRAMES_MAX)
+            {
+                vm->message = "maximum call depth reached";
+                return VM_STACK_OVERFLOW;
+            }
+            uint8_t agr_count = VM_READ_BYTE();
+            Value value = {0};
+            VM_STACK_PEEK(value, agr_count);
+            if (IS_OBJ(value))
+            {
+                switch (OBJ_TYPE(value))
+                {
+                case OBJ_FUNCTION:
+                {
+                    ObjFunction *function = AS_FUNCTION(value);
+                    if (agr_count != function->arity)
+                    {
+                        char *template = "Function '%s' expects %d parameters, but %d was provided.";
+                        char *message = calloc(strlen(template) + helper_num_places(function->arity) + helper_num_places(agr_count) + function->name->length, sizeof(char));
+                        sprintf(message, template, function->name->chars, function->arity, agr_count);
+                        vm->message = message;
+                        vm->row = value.row;
+                        vm->col = value.col;
+                    }
+                    if (agr_count < function->arity)
+                    {
+                        return VM_TOO_FEW_ARGUMENTS;
+                    }
+                    if (agr_count > function->arity)
+                    {
+                        return VM_TOO_MANY_ARGUMENTS;
+                    }
+                    CallFrame *call_frame = &vm->frames[vm->frame_count++];
+                    call_frame->function = function;
+                    call_frame->ip = function->chunk->items;
+                    call_frame->slots = vm->sp - agr_count - 1;
+                    frame = call_frame;
+                    continue;
+                }
+                }
+            }
+            char *given = value_typeof(value);
+            VM_TYPE_ERROR("\"Function\"", given, value.row, value.col);
+            break;
+        }
         case OP_DUP:
         {
             Value value = {0};
@@ -227,13 +270,13 @@ VM_Error vm_interpret(VM *vm)
         case OP_LOOP:
         {
             uint16_t offset = VM_READ_SHORT();
-            vm->ip -= offset;
+            frame->ip -= offset;
             break;
         }
         case OP_JMP:
         {
             uint16_t offset = VM_READ_SHORT();
-            vm->ip = VM_CURRENT_CHUNK_BASE + offset;
+            frame->ip = VM_CURRENT_CHUNK_BASE + offset;
             break;
         }
         case OP_JMP_IF_FALSE:
@@ -243,7 +286,7 @@ VM_Error vm_interpret(VM *vm)
             VM_STACK_PEEK(value, 0);
             bool fval = is_falsey(value);
             if (fval)
-                vm->ip = VM_CURRENT_CHUNK_BASE + offset;
+                frame->ip = VM_CURRENT_CHUNK_BASE + offset;
             break;
         }
         case OP_POP:
@@ -258,14 +301,14 @@ VM_Error vm_interpret(VM *vm)
             byte slot = VM_READ_BYTE();
             Value value;
             VM_STACK_PEEK(value, 0);
-            array_at(&vm->stack, slot) = value;
+            frame->slots[slot] = value;
             break;
         }
         case OP_GET_LOCAL:
         {
             byte slot = VM_READ_BYTE();
             Value name = VM_READ_CONSTANT();
-            Value value = array_at(&vm->stack, slot);
+            Value value = frame->slots[slot];
             value.row = name.row;
             value.col = name.col;
             VM_STACK_PUSH(value);
@@ -317,9 +360,17 @@ VM_Error vm_interpret(VM *vm)
         case OP_RETURN:
         {
             Value value = {0};
+            vm->frame_count--;
+            if (vm->frame_count == 0)
+            {
+                VM_STACK_POP(value);
+                return VM_OK;
+            }
             VM_STACK_POP(value);
-            (void)value;
-            return VM_OK;
+            vm->sp = frame->slots;
+            VM_STACK_PUSH(value);
+            frame = &vm->frames[vm->frame_count - 1];
+            break;
         }
         case OP_CONSTANT:
         {
@@ -414,7 +465,7 @@ VM_Error vm_interpret(VM *vm)
             break;
         }
         default:
-            fprintf(stderr, "[ERROR] illegal instruction pointer(%zu)\n", (size_t)(vm->ip - VM_CURRENT_CHUNK_BASE) - 1);
+            fprintf(stderr, "[ERROR] illegal instruction pointer(%zu)\n", (size_t)(frame->ip - VM_CURRENT_CHUNK_BASE) - 1);
             return VM_ILLEGAL_INSTRUCTION;
         }
     }
@@ -425,4 +476,6 @@ VM_Error vm_interpret(VM *vm)
 #undef VM_STACK_PUSH
 #undef VM_STACK_POP
 #undef VM_TYPE_ERROR
+#undef VM_CURRENT_CHUNK_BASE
+#undef VM_CURRENT_CHUNK
 }

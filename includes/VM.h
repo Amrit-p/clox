@@ -3,9 +3,8 @@
 #include "compiler.h"
 #include "table.h"
 
-#define VM_CURRENT_CHUNK (vm->function->chunk)
-#define VM_CURRENT_CHUNK_BASE (vm->function->chunk->items)
-#define STACK_SIZE 256
+#define FRAMES_MAX 64
+#define STACK_SIZE (FRAMES_MAX * UINT8_COUNT)
 
 typedef struct
 {
@@ -22,10 +21,8 @@ typedef struct
 
 typedef struct
 {
-    Values *values;
     Stack stack;
     Value *sp;
-    uint8_t *ip;
     int row;
     int col;
     char *message;
@@ -33,22 +30,23 @@ typedef struct
     Table *globals;
     Table *variables;
     char *file_path;
-    ObjFunction *function;
+    CallFrame frames[FRAMES_MAX];
+    int frame_count;
 } VM;
 
 typedef enum
 {
     VM_OK,
-    VM_COMPILE_ERROR,
     VM_TYPE_ERROR,
     VM_ILLEGAL_INSTRUCTION,
     VM_STACK_OVERFLOW,
     VM_STACK_UNDERFLOW,
     VM_REFERENCE_ERROR,
+    VM_TOO_FEW_ARGUMENTS,
+    VM_TOO_MANY_ARGUMENTS,
 } VM_Error;
 
 VM *init_vm(Compiler *compiler);
 void vm_free(VM *vm);
-void vm_dump(VM *vm, FILE *stream);
 VM_Error vm_interpret(VM *vm);
 #endif

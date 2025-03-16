@@ -34,7 +34,6 @@ typedef struct
     Table *strings;
     Table *globals;
     Table *variables;
-    Values *values;
 } Compiler;
 
 void init_compiler(Compiler *compiler, FunctionType type);

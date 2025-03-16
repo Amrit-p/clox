@@ -5,38 +5,42 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define AST_ERROR_PREFIX_FORMART "CompileError at %s:%zu:%zu"
+#define FILE_ROW_COL_FORMAT "%s:%zu:%zu"
+#define AST_ERROR_PREFIX_FORMART "CompileError at " FILE_ROW_COL_FORMAT
 
-#define AST_REDEC_ERROR(compiler, token)                                                \
-    do                                                                            \
-    {                                                                             \
-        (compiler)->had_error = true;                                                   \
-        fprintf(stderr, AST_ERROR_PREFIX_FORMART " '%.*s' is already declared\n", \
-                (compiler)->file_path,                                                  \
-                (token).row,                                                      \
-                (token).col,                                                      \
-                (int)(token).length,                                              \
-                (token).start);                                                   \
+#define AST_REDEC_ERROR(compiler, token, previous_row, previous_col)                                         \
+    do                                                                                                       \
+    {                                                                                                        \
+        (compiler)->had_error = true;                                                                        \
+        fprintf(stderr, AST_ERROR_PREFIX_FORMART " '%.*s' is already declared at " FILE_ROW_COL_FORMAT "\n", \
+                (compiler)->file_path,                                                                       \
+                (token).row,                                                                                 \
+                (token).col,                                                                                 \
+                (int)(token).length,                                                                         \
+                (token).start,                                                                               \
+                (compiler)->file_path,                                                                       \
+                (size_t)(previous_row),                                                                      \
+                (size_t)(previous_col));                                                                     \
     } while (0)
 
-#define AST_REF_ERROR(compiler, token)                                             \
+#define AST_REF_ERROR(compiler, token)                                       \
     do                                                                       \
     {                                                                        \
-        (compiler)->had_error = true;                                              \
+        (compiler)->had_error = true;                                        \
         fprintf(stderr, AST_ERROR_PREFIX_FORMART " '%.*s' is not defined\n", \
-                (compiler)->file_path,                                             \
+                (compiler)->file_path,                                       \
                 (token).row,                                                 \
                 (token).col,                                                 \
                 (int)(token).length,                                         \
                 (token).start);                                              \
     } while (0)
 
-#define AST_VAR_SELF_INIT(compiler, token)                                                                          \
+#define AST_VAR_SELF_INIT(compiler, token)                                                                    \
     do                                                                                                        \
     {                                                                                                         \
-        compiler->had_error = true;                                                                                 \
+        compiler->had_error = true;                                                                           \
         fprintf(stderr, AST_ERROR_PREFIX_FORMART " cannot read variable '%.*s' in its own initialization.\n", \
-                (compiler)->file_path,                                                                              \
+                (compiler)->file_path,                                                                        \
                 (token).row,                                                                                  \
                 (token).col,                                                                                  \
                 (int)(token).length,                                                                          \
@@ -360,20 +364,20 @@ void ast_binary_to_byte(AST *binary, Compiler *compiler)
         if (compiler->scope_depth > 0)
         {
             arg = compiler_resolve_local(compiler, binary->left->token);
-            if (arg != -1)
-            {
-                chunk_push(compiler->function->chunk, OP_SET_LOCAL);
-                chunk_push(compiler->function->chunk, (byte)arg);
-            }
         }
-        if (arg == -1)
+        if (arg != -1)
+        {
+            chunk_push(compiler->function->chunk, OP_SET_LOCAL);
+            chunk_push(compiler->function->chunk, (byte)arg);
+        }
+        else if (arg == -1)
         {
             ObjString *interned = table_find_string(compiler->globals, binary->left->name);
             if (interned == NULL)
                 AST_REF_ERROR(compiler, binary->left->token);
             Value str = OBJ_VAL(interned, binary->left->token.row, binary->left->token.col);
             chunk_push(compiler->function->chunk, OP_SET_GLOBAL);
-            chunk_push(compiler->function->chunk, value_push(compiler->values, str));
+            chunk_push(compiler->function->chunk, value_push(compiler->function->values, str));
         }
         break;
     }
@@ -447,7 +451,7 @@ void ast_unary_to_byte(AST *ast, Compiler *compiler)
     case TOKEN_INCREMENT:
     {
         chunk_push(compiler->function->chunk, OP_CONSTANT);
-        chunk_push(compiler->function->chunk, value_push(compiler->values, NUMBER_VAL(1, ast->token.row, ast->token.col)));
+        chunk_push(compiler->function->chunk, value_push(compiler->function->values, NUMBER_VAL(1, ast->token.row, ast->token.col)));
 
         OpCode code = ast->token.type == TOKEN_INCREMENT ? OP_ADD : OP_SUBTRACT;
         chunk_push(compiler->function->chunk, code);
@@ -467,7 +471,7 @@ void ast_unary_to_byte(AST *ast, Compiler *compiler)
             ObjString *interned = table_find_string(compiler->globals, ast->value->name);
             Value str = OBJ_VAL(interned, ast->value->token.row, ast->value->token.col);
             chunk_push(compiler->function->chunk, OP_SET_GLOBAL);
-            chunk_push(compiler->function->chunk, value_push(compiler->values, str));
+            chunk_push(compiler->function->chunk, value_push(compiler->function->values, str));
         }
         break;
     }
@@ -501,7 +505,7 @@ void ast_to_byte(AST *ast, Compiler *compiler)
     case AST_NUMBER:
     {
         chunk_push(compiler->function->chunk, OP_CONSTANT);
-        chunk_push(compiler->function->chunk, value_push(compiler->values, NUMBER_VAL(ast->number, ast->token.row, ast->token.col)));
+        chunk_push(compiler->function->chunk, value_push(compiler->function->values, NUMBER_VAL(ast->number, ast->token.row, ast->token.col)));
         break;
     }
     case AST_STRING:
@@ -510,7 +514,7 @@ void ast_to_byte(AST *ast, Compiler *compiler)
         ObjString *interned = table_find_string(compiler->strings, ast->name);
         ObjString *obj = interned == NULL ? cstr_to_objstr(ast->name) : interned;
         Value str = OBJ_VAL(obj, ast->token.row, ast->token.col);
-        chunk_push(compiler->function->chunk, value_push(compiler->values, str));
+        chunk_push(compiler->function->chunk, value_push(compiler->function->values, str));
         table_set(compiler->strings, AS_STRING(str), NULL_VAL(str.row, str.col));
         break;
     }
@@ -535,19 +539,19 @@ void ast_to_byte(AST *ast, Compiler *compiler)
     case AST_TRUE:
     {
         chunk_push(compiler->function->chunk, OP_CONSTANT);
-        chunk_push(compiler->function->chunk, value_push(compiler->values, BOOL_VAL(true, ast->token.row, ast->token.col)));
+        chunk_push(compiler->function->chunk, value_push(compiler->function->values, BOOL_VAL(true, ast->token.row, ast->token.col)));
         break;
     }
     case AST_FALSE:
     {
         chunk_push(compiler->function->chunk, OP_CONSTANT);
-        chunk_push(compiler->function->chunk, value_push(compiler->values, BOOL_VAL(false, ast->token.row, ast->token.col)));
+        chunk_push(compiler->function->chunk, value_push(compiler->function->values, BOOL_VAL(false, ast->token.row, ast->token.col)));
         break;
     }
     case AST_NULL:
     {
         chunk_push(compiler->function->chunk, OP_CONSTANT);
-        chunk_push(compiler->function->chunk, value_push(compiler->values, NULL_VAL(ast->token.row, ast->token.col)));
+        chunk_push(compiler->function->chunk, value_push(compiler->function->values, NULL_VAL(ast->token.row, ast->token.col)));
         break;
     }
     case AST_STMT:
@@ -572,6 +576,20 @@ void ast_to_byte(AST *ast, Compiler *compiler)
             compiler->continue_stack[compiler->continue_stack_count++] = (byte)offset;
             break;
         }
+        case TOKEN_RETURN:
+        {
+            if (compiler->type == TYPE_SCRIPT)
+            {
+                compiler->had_error = true;
+                fprintf(stderr, AST_ERROR_PREFIX_FORMART " can't have return from top-level code.\n",
+                        compiler->file_path,
+                        ast->token.row,
+                        ast->token.col);
+            }
+            ast_to_byte(ast->value, compiler);
+            chunk_push(compiler->function->chunk, OP_RETURN);
+            break;
+        }
         default:
             NOTREACHABLE;
         }
@@ -579,7 +597,6 @@ void ast_to_byte(AST *ast, Compiler *compiler)
     }
     case AST_VAR:
     {
-        int arg = -1;
         if (compiler->scope_depth > 0)
         {
             for (int i = compiler->local_count - 1; i >= 0; i--)
@@ -588,37 +605,51 @@ void ast_to_byte(AST *ast, Compiler *compiler)
                 if (local->depth != -1 && local->depth < compiler->scope_depth)
                     break;
                 if (token_equal(ast->token, local->name))
-                    AST_REDEC_ERROR(compiler, ast->token);
+                {
+                    AST_REDEC_ERROR(compiler, ast->token, local->name.row, local->name.col);
+                    return;
+                }
             }
             Local *local = &compiler->locals[compiler->local_count++];
             local->name = ast->token;
             local->depth = -1;
-            ast_to_byte(ast->value, compiler);
+            if (ast->value)
+                ast_to_byte(ast->value, compiler);
             compiler->locals[compiler->local_count - 1].depth = compiler->scope_depth;
-            arg = compiler_resolve_local(compiler, ast->token);
-            if (arg != -1)
+            if (ast->value)
             {
+                int arg = compiler_resolve_local(compiler, ast->token);
+                if (arg == -1)
+                {
+                    compiler->had_error = true;
+                    // arg shouldn't be -1 in this case because in the above we setting it up
+                    // if this conddtion is true something is over cooked
+                    fprintf(stderr, BOLDRED "NOT REACHABLE" RESET ": %s:%d in %s\n", __FILE__, __LINE__, __func__);
+                }
                 chunk_push(compiler->function->chunk, OP_SET_LOCAL);
                 chunk_push(compiler->function->chunk, (byte)arg);
+
                 ObjString *interned = table_find_string(compiler->variables, ast->name);
                 ObjString *obj = interned ? interned : cstr_to_objstr(ast->name);
                 Value str = OBJ_VAL(obj, ast->token.row, ast->token.col);
                 table_set(compiler->variables, obj, str);
             }
+            return;
         }
-        if (arg == -1)
+        ObjString *interned = table_find_string(compiler->globals, ast->name);
+        if (interned)
         {
-            ObjString *interned = table_find_string(compiler->globals, ast->name);
-            if (interned)
-                AST_REDEC_ERROR(compiler, ast->token);
-            ObjString *obj = interned ? interned : cstr_to_objstr(ast->name);
-            Value str = OBJ_VAL(obj, ast->token.row, ast->token.col);
-            table_set(compiler->globals, obj, UNDEF_VAL(str.row, str.row));
-            ast_to_byte(ast->value, compiler);
-            chunk_push(compiler->function->chunk, OP_DEFINE_GLOBAL);
-            chunk_push(compiler->function->chunk, value_push(compiler->values, str));
-            table_set(compiler->globals, obj, NULL_VAL(str.row, str.row));
+            Value previous;
+            table_get(compiler->globals, interned, &previous);
+            AST_REDEC_ERROR(compiler, ast->token, previous.row, previous.col);
         }
+        ObjString *obj = interned ? interned : cstr_to_objstr(ast->name);
+        Value str = OBJ_VAL(obj, ast->token.row, ast->token.col);
+        table_set(compiler->globals, obj, UNDEF_VAL(str.row, str.row));
+        ast_to_byte(ast->value, compiler);
+        chunk_push(compiler->function->chunk, OP_DEFINE_GLOBAL);
+        chunk_push(compiler->function->chunk, value_push(compiler->function->values, str));
+        table_set(compiler->globals, obj, NULL_VAL(str.row, str.row));
         break;
     }
     case AST_ID:
@@ -627,14 +658,18 @@ void ast_to_byte(AST *ast, Compiler *compiler)
         if (compiler->scope_depth > 0)
         {
             arg = compiler_resolve_local(compiler, ast->token);
-            if (arg != -1)
+            if (arg == -2)
+            {
+                AST_VAR_SELF_INIT(compiler, ast->token);
+            }
+            else if (arg != -1)
             {
                 chunk_push(compiler->function->chunk, OP_GET_LOCAL);
                 chunk_push(compiler->function->chunk, (byte)arg);
                 ObjString *interend = table_find_string(compiler->variables, ast->name);
                 ObjString *obj = interend ? interend : cstr_to_objstr(ast->name);
                 Value str = OBJ_VAL(obj, ast->token.row, ast->token.col);
-                chunk_push(compiler->function->chunk, value_push(compiler->values, str));
+                chunk_push(compiler->function->chunk, value_push(compiler->function->values, str));
             }
         }
         if (arg == -1)
@@ -651,7 +686,7 @@ void ast_to_byte(AST *ast, Compiler *compiler)
             }
             Value str = OBJ_VAL(interned, ast->token.row, ast->token.col);
             chunk_push(compiler->function->chunk, OP_GET_GLOBAL);
-            chunk_push(compiler->function->chunk, value_push(compiler->values, str));
+            chunk_push(compiler->function->chunk, value_push(compiler->function->values, str));
         }
         break;
     }
@@ -697,7 +732,7 @@ void ast_to_byte(AST *ast, Compiler *compiler)
         ast_to_byte(ast->value, compiler);
         chunk_push(compiler->function->chunk, OP_DUP);
         chunk_push(compiler->function->chunk, OP_CONSTANT);
-        chunk_push(compiler->function->chunk, value_push(compiler->values, NUMBER_VAL(1, ast->token.row, ast->token.col)));
+        chunk_push(compiler->function->chunk, value_push(compiler->function->values, NUMBER_VAL(1, ast->token.row, ast->token.col)));
 
         OpCode code = ast->token.type == TOKEN_INCREMENT ? OP_ADD : OP_SUBTRACT;
         chunk_push(compiler->function->chunk, code);
@@ -719,7 +754,7 @@ void ast_to_byte(AST *ast, Compiler *compiler)
                 AST_REF_ERROR(compiler, ast->value->token);
             Value str = OBJ_VAL(interned, ast->value->token.row, ast->value->token.col);
             chunk_push(compiler->function->chunk, OP_SET_GLOBAL);
-            chunk_push(compiler->function->chunk, value_push(compiler->values, str));
+            chunk_push(compiler->function->chunk, value_push(compiler->function->values, str));
         }
 
         chunk_push(compiler->function->chunk, OP_POP);
@@ -760,9 +795,125 @@ void ast_to_byte(AST *ast, Compiler *compiler)
     }
     case AST_FUNCTION_DECL:
     {
-        ast_begin_scope(compiler);
+        char *name = token_text(ast->token);
+        ObjString *interned = table_find_string(compiler->globals, name);
 
-        ast_end_scope(compiler);
+        if (interned)
+        {
+            Value previous;
+            table_get(compiler->globals, interned, &previous);
+            AST_REDEC_ERROR(compiler, ast->token, previous.row, previous.col);
+        }
+
+        ObjString *function_name = interned ? interned : cstr_to_objstr(name);
+        free(name);
+
+        Compiler tempCompiler;
+        init_compiler(&tempCompiler, TYPE_FUNCTION);
+        Local *local = &tempCompiler.locals[0];
+        local->name = ast->token;
+
+        tempCompiler.file_path = compiler->file_path;
+        tempCompiler.globals = compiler->globals;
+        tempCompiler.strings = compiler->strings;
+        tempCompiler.variables = compiler->variables;
+
+        tempCompiler.function->name = function_name;
+        tempCompiler.function->arity = (int)ast->childs.count;
+
+        Value function_val = OBJ_VAL(tempCompiler.function, ast->token.row, ast->token.col);
+        table_set(compiler->globals, function_name, function_val);
+
+        ast_begin_scope(&tempCompiler);
+        local->depth = tempCompiler.scope_depth;
+
+        if (ast->childs.count > 255)
+        {
+            compiler->had_error = true;
+            fprintf(stderr, AST_ERROR_PREFIX_FORMART " Can't have more than 255 parameters.\n", compiler->file_path, ast->token.row, ast->token.col);
+        }
+        else
+        {
+            for (size_t i = 0; i < ast->childs.count; i++)
+            {
+                AST *parameter = array_at(&ast->childs, i);
+                ast_to_byte(parameter, &tempCompiler);
+            }
+        }
+        bool has_return = false;
+        if (ast->value)
+            for (size_t i = 0; i < ast->value->childs.count; i++)
+            {
+                AST *child = array_at(&ast->value->childs, i);
+                if (child->type == AST_STMT && child->token.type == TOKEN_RETURN)
+                    has_return = true;
+                ast_to_byte(child, &tempCompiler);
+            }
+        if (!has_return)
+        {
+            chunk_push(tempCompiler.function->chunk, OP_CONSTANT);
+            chunk_push(tempCompiler.function->chunk,
+                       value_push(tempCompiler.function->values,
+                                  NULL_VAL(ast->token.row, ast->token.col)));
+            compiler_end(&tempCompiler);
+        }
+        if (compiler->had_error == false)
+            compiler->had_error = tempCompiler.had_error;
+
+        break;
+    }
+    case AST_FUNCTION_CALL:
+    {
+        ObjString *function = table_find_string(compiler->globals, ast->left->name);
+        if (function == NULL)
+        {
+            AST_REF_ERROR(compiler, ast->left->token);
+            return;
+        }
+        Value value = {0};
+        table_get(compiler->globals, function, &value);
+        int arg_count = 0;
+        if (ast->value == NULL)
+        {
+            arg_count = 0;
+        }
+        else if (ast->value->type == AST_SEQUENCEEXPR)
+        {
+            arg_count = ast->value->childs.count;
+        }
+        else
+        {
+            arg_count = 1;
+        }
+        if (IS_FUNCTION(value))
+        {
+            ObjFunction *function_obj = AS_FUNCTION(value);
+
+            if (function_obj->arity != arg_count)
+            {
+                compiler->had_error = true;
+                fprintf(stderr, AST_ERROR_PREFIX_FORMART " expected %d arguments but got %d arguments\n",
+                        compiler->file_path,
+                        ast->left->token.row,
+                        ast->left->token.col,
+                        function_obj->arity,
+                        arg_count);
+            }
+            if (arg_count > 255)
+            {
+                compiler->had_error = true;
+                fprintf(stderr, AST_ERROR_PREFIX_FORMART "can't have more then 255 arguments\n",
+                        compiler->file_path,
+                        ast->left->token.row,
+                        ast->left->token.col);
+            }
+        }
+        Value function_val = OBJ_VAL(function, ast->left->token.row, ast->left->token.col);
+        chunk_push(compiler->function->chunk, OP_GET_GLOBAL);
+        chunk_push(compiler->function->chunk, value_push(compiler->function->values, function_val));
+        ast_to_byte(ast->value, compiler);
+        chunk_push(compiler->function->chunk, OP_CALL);
+        chunk_push(compiler->function->chunk, (byte)arg_count);
         break;
     }
     default:

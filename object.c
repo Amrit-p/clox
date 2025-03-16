@@ -20,7 +20,7 @@ void object_print(Value value)
         fprintf(stdout, "%s", AS_CSTRING(value));
         break;
     case OBJ_FUNCTION:
-        fprintf(stdout, "<fn %s>", AS_FUNCTION(value)->name->chars);
+        fprintf(stdout, "<fn .%s>", AS_FUNCTION(value)->name == NULL ? "entry" : AS_FUNCTION(value)->name->chars);
         break;
     default:
         NOTREACHABLE;
@@ -57,5 +57,6 @@ ObjFunction *new_function()
 {
     ObjFunction *function = ALLOCATE_OBJ(ObjFunction, OBJ_FUNCTION);
     function->chunk = init_chunk();
+    function->values = init_values();
     return function;
 }

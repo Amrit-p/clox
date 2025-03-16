@@ -519,6 +519,19 @@ AST *parser_parse_block(Parser *parser)
     parser_eat(parser, TOKEN_RCURLY, "expected '}'");
     return block;
 }
+AST *parser_parse_return(Parser *parser)
+{
+    AST *ret = init_ast(AST_STMT);
+    ret->token = parser_eat(parser, TOKEN_RETURN, "expeted 'return' keyword.");
+    ret->value = parser_parse_expr(parser);
+    if (ret->value == NULL)
+    {
+        ret->value = init_ast(AST_NULL);
+        ret->value->token = ret->token;
+    }
+    parser_eat(parser, TOKEN_SEMICOLON, "expected semicolon after return statement");
+    return ret;
+}
 AST *parser_parse_stmt(Parser *parser)
 {
     TokenType token_type = parser->current_token.type;
@@ -549,8 +562,9 @@ AST *parser_parse_stmt(Parser *parser)
         return NULL;
     }
     case TOKEN_RETURN:
-        NOTIMPLEMENTED("return stmt");
-        break;
+    {
+        return parser_parse_return(parser);
+    }
     case TOKEN_CONTINUE:
     case TOKEN_BREAK:
     {
@@ -579,12 +593,15 @@ AST *parser_parse_function(Parser *parser)
     parser_eat(parser, TOKEN_LPAREN, "expected '(' after function name.");
     while (parser->current_token.type != TOKEN_RPAREN)
     {
-        AST *id = parser_parse_id(parser);
+        AST *var = init_ast(AST_VAR);
+        var->name = token_text(parser->current_token);
+        Token token = parser_eat(parser, TOKEN_ID, "expected an identifier");
+        var->token = token;
         if (parser->current_token.type == TOKEN_COMMA)
         {
             parser_advance(parser);
         }
-        ast_push(function, id);
+        ast_push(function, var);
     }
     parser_eat(parser, TOKEN_RPAREN, "expected ')' after function agruments.");
     function->value = parser_parse_block(parser);

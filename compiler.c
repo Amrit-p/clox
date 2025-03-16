@@ -6,7 +6,7 @@ void compiler_free(Compiler *compiler)
     table_free(compiler->strings);
     table_free(compiler->globals);
     table_free(compiler->variables);
-    values_free(compiler->values);
+    values_free(compiler->function->values);
     free(compiler->function->chunk);
 }
 void init_compiler(Compiler *compiler, FunctionType type)
@@ -15,11 +15,12 @@ void init_compiler(Compiler *compiler, FunctionType type)
     compiler->type = type;
     compiler->local_count = 0;
 
-    compiler->strings = init_table();
-    compiler->globals = init_table();
-    compiler->variables = init_table();
-    compiler->values = init_values();
-
+    if (type == TYPE_SCRIPT)
+    {
+        compiler->strings = init_table();
+        compiler->globals = init_table();
+        compiler->variables = init_table();
+    }
     Local *local = &compiler->locals[compiler->local_count++];
     local->depth = 0;
     local->name.start = "";
@@ -53,7 +54,8 @@ int compiler_resolve_local(Compiler *compiler, Token token)
 void compiler_dump(Compiler *compiler, FILE *stream)
 {
     fprintf(stream, "==== .data ====\n");
-    values_dump(compiler->values, stream);
+    values_dump(compiler->function->values, stream);
     fprintf(stream, "==== .text ====\n");
+    fprintf(stream, ".%s\n", compiler->function->name != NULL ? compiler->function->name->chars : "entry");
     chunk_dump(compiler->function->chunk, stream);
 }

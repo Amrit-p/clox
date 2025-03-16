@@ -42,11 +42,13 @@ void values_dump(Values *values, FILE *stream)
         case VAL_OBJ:
         {
             Obj *obj = AS_OBJ(data);
-
             switch (obj->type)
             {
             case OBJ_STRING:
                 fprintf(stream, "\"%s\"\n", AS_CSTRING(data));
+                break;
+            case OBJ_FUNCTION:
+                fprintf(stream, "<fn .%s>\n", AS_FUNCTION(data)->name->chars);
                 break;
             default:
                 fprintf(stream, "Object\n");

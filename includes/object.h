@@ -13,8 +13,6 @@ typedef enum
 struct Obj
 {
     ObjType type;
-    uint32_t row;
-    uint32_t col;
 };
 
 #define OBJ_TYPE(value) (AS_OBJ(value)->type)
@@ -38,6 +36,7 @@ typedef struct
     Obj obj;
     int arity;
     Chunk *chunk;
+    Values *values;
     ObjString *name;
 } ObjFunction;
 

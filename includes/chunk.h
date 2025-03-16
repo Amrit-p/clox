@@ -49,6 +49,8 @@ typedef enum
     OP_LEFT_SHIFT,
     OP_RIGHT_SHIFT,
     OP_DUP,
+    OP_CALL,
+    OP_NULL,
 } OpCode;
 Chunk *init_chunk();
 size_t chunk_push(Chunk *chunk, byte insturction); /*returns index of the instruction */

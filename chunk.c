@@ -69,6 +69,10 @@ const char *chunk_byte_to_str(byte instruction)
         return "OP_RIGHT_SHIFT";
     case OP_DUP:
         return "OP_DUP";
+    case OP_CALL:
+        return "OP_CALL";
+    case OP_NULL:
+        return "OP_NULL";
     default:
         return "UNKNOWN";
     }
@@ -123,6 +127,7 @@ size_t chunk_print_instruction(Chunk *chunk, size_t offset, FILE *stream)
         fprintf(stream, "&%04u", jmpOffset);
         break;
     }
+    case OP_CALL:
     case OP_SET_LOCAL:
     case OP_SET_GLOBAL:
     case OP_GET_GLOBAL:

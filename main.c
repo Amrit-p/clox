@@ -114,6 +114,23 @@ int main(int argc, char *argv[])
             log_info("starting interpreting...");
             VM *vm = init_vm(&compiler);
             VM_Error error = vm_interpret(vm);
+            if (error != VM_OK)
+            {
+                for (int i = vm->frame_count - 1; i >= 0; --i)
+                {
+                    CallFrame *frame = &vm->frames[i];
+                    ObjFunction *function = frame->function;
+                    fprintf(stderr, "#%d ", i);
+                    if (function->name == NULL)
+                    {
+                        fprintf(stderr, "%s\n", vm->file_path);
+                    }
+                    else
+                    {
+                        fprintf(stderr, "%s()\n", function->name->chars);
+                    }
+                }
+            }
             switch (error)
             {
             case VM_TYPE_ERROR:
@@ -125,6 +142,12 @@ int main(int argc, char *argv[])
                 break;
             case VM_REFERENCE_ERROR:
                 fprintf(stderr, "ReferenceError at %s:%d:%d %s\n", vm->file_path, vm->row, vm->col, vm->message);
+                break;
+            case VM_TOO_FEW_ARGUMENTS:
+                fprintf(stderr, "TooFewArguments at %s:%d:%d %s\n", vm->file_path, vm->row, vm->col, vm->message);
+                break;
+            case VM_TOO_MANY_ARGUMENTS:
+                fprintf(stderr, "TooManyArguments at %s:%d:%d %s\n", vm->file_path, vm->row, vm->col, vm->message);
                 break;
             default:
                 break;
