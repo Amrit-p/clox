@@ -228,7 +228,7 @@ AST *parser_parse_primary(Parser *parser)
     }
     }
 }
-AST *parser_parse_precendence(Parser *parser, Precedence precedence)
+AST *parser_parse_precedence(Parser *parser, Precedence precedence)
 {
     ParsePrefixFn prefix_handler = parser_production(parser->current_token.type)->prefix;
     if (prefix_handler == NULL)
@@ -300,7 +300,7 @@ AST *parser_parse_prefix(Parser *parser)
     unary->name = token_text(parser->current_token);
     Token token = parser->current_token;
     parser_advance(parser);
-    AST *operand = parser_parse_precendence(parser, PREC_UNARY);
+    AST *operand = parser_parse_precedence(parser, PREC_UNARY);
     if ((token.type == TOKEN_INCREMENT || token.type == TOKEN_DECREMENT) && operand && operand->type != AST_ID)
     {
         parser_token_error(operand->token, "invalid expr in prefix operation.");
@@ -342,7 +342,7 @@ AST *parser_parse_infix(Parser *parser, AST *prefix)
     bin->name = token_text(token);
     ParseRule *rule = parser_production(token.type);
     Precedence precedence = token.type == TOKEN_ASSIGNMENT ? PREC_ASSIGNMENT : rule->precedence + 1;
-    AST *right = parser_parse_precendence(parser, precedence);
+    AST *right = parser_parse_precedence(parser, precedence);
 
     if (right == NULL)
         return NULL;
@@ -395,7 +395,7 @@ void parser_state(Parser *parser)
 }
 AST *parser_parse_expr(Parser *parser)
 {
-    return parser_parse_precendence(parser, PREC_COMMA);
+    return parser_parse_precedence(parser, PREC_COMMA);
 }
 AST *parser_parse_print(Parser *parser)
 {
