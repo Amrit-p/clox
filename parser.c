@@ -336,7 +336,6 @@ AST *parser_parse_infix(Parser *parser, AST *prefix)
     if (token.type == TOKEN_ASSIGNMENT && prefix && prefix->type != AST_ID && prefix->token.type != TOKEN_ASSIGNMENT)
     {
         parser_token_error(prefix->token, "lvalue cannot be a constant.");
-        return NULL;
     }
 
     bin->name = token_text(token);
@@ -615,8 +614,7 @@ AST *parser_parse_decl(Parser *parser)
     case TOKEN_VAR:
     {
         AST *var = parser_parse_var(parser);
-        if (var)
-            parser_eat(parser, TOKEN_SEMICOLON, "variable declaration should be end with semicolon.");
+        parser_eat(parser, TOKEN_SEMICOLON, "variable declaration should be end with semicolon.");
         return var;
     }
     case TOKEN_FUNCTION:
