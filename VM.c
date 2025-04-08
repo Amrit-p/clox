@@ -254,6 +254,10 @@ VM_Error vm_interpret(VM *vm)
                     frame = call_frame;
                     continue;
                 }
+                default:
+                {
+
+                }
                 }
             }
             char *given = value_typeof(value);
