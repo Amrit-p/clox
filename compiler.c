@@ -6,8 +6,6 @@ void compiler_free(Compiler *compiler)
     table_free(compiler->strings);
     table_free(compiler->globals);
     table_free(compiler->variables);
-    values_free(compiler->function->values);
-    free(compiler->function->chunk);
 }
 void init_compiler(Compiler *compiler, FunctionType type)
 {

@@ -1,10 +1,13 @@
 #include "table.h"
 #include "helper.h"
+Obj *objects = {0};
 
 Obj *object_allocate(size_t size, ObjType type)
 {
     Obj *object = calloc(1, size);
     object->type = type;
+    object->next = objects;
+    objects = object;
     return object;
 }
 
@@ -59,4 +62,40 @@ ObjFunction *new_function()
     function->chunk = init_chunk();
     function->values = init_values();
     return function;
+}
+void object_free(Obj *object)
+{
+    switch (object->type)
+    {
+    case OBJ_STRING:
+    {
+        ObjString *string = (ObjString *)object;
+        free(string);
+        break;
+    }
+    case OBJ_FUNCTION:
+    {
+        ObjFunction *function = (ObjFunction *)object;
+        ObjString *string = (ObjString *)function->name;
+        free(string);
+        values_free(function->values);
+        chunk_free(function->chunk);
+        free(function);
+        break;
+    }
+    default:
+        NOTREACHABLE;
+    }
+}
+
+void objects_free()
+{
+    Obj *temp = objects;
+    while (temp != NULL)
+    {
+        Obj *next = temp->next;
+        object_free(temp);
+        temp = next;
+    }
+    
 }

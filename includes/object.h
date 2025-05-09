@@ -13,6 +13,7 @@ typedef enum
 struct Obj
 {
     ObjType type;
+    Obj *next;
 };
 
 #define OBJ_TYPE(value) (AS_OBJ(value)->type)
@@ -52,4 +53,6 @@ ObjString *new_string(char *chars, size_t length);
 ObjString *allocate_string(size_t length, uint32_t hash);
 
 ObjFunction *new_function();
+
+void objects_free();
 #endif

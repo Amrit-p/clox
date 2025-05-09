@@ -1,19 +1,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "chunk.h"
-#include "VM.h"
-#include "token.h"
+#include <errno.h>
+
 #include "helper.h"
-#include "parser.h"
-#include "lexer.h"
+
+#include "log.h"
 #ifndef PROD
 #define LOG_IMPLEMENTATION
 #endif
-#include "log.h"
+
+#include "token.h"
+#include "lexer.h"
+#include "parser.h"
 #include "AST.h"
-#include <errno.h>
 #include "compiler.h"
+#include "VM.h"
+
 
 #define ERROR_PREFIX "Error: "
 
@@ -241,6 +244,7 @@ int main(int argc, char *argv[])
             }
             compiler_free(&compiler);
             vm_free(vm);
+            objects_free();
         }
         log_info("finished interpreting");
     }
