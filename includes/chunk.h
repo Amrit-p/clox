@@ -51,6 +51,14 @@ typedef enum
     OP_DUP,
     OP_CALL,
 } OpCode;
+
+typedef enum
+{
+    OPERAND_IMMEDIATE,
+    OPERAND_MEMORY,
+} OperandType;
+
+char *chunk_operand_type_to_str();
 Chunk *init_chunk();
 size_t chunk_push(Chunk *chunk, byte insturction); /*returns index of the instruction */
 byte chunk_pop(Chunk *chunk);

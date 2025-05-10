@@ -1,5 +1,6 @@
 #include "chunk.h"
 #include "array.h"
+#include "helper.h"
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -98,9 +99,21 @@ void chunk_print_opcode(byte instruction, FILE *stream)
 {
     fprintf(stream, "%s  ", chunk_byte_to_str(instruction));
 }
-void chunk_print_operand(byte index, FILE *stream)
+char *chunk_operand_type_to_str(OperandType type)
 {
-    fprintf(stream, "#%u", index);
+    switch (type)
+    {
+    case OPERAND_IMMEDIATE:
+        return "%";
+    case OPERAND_MEMORY:
+        return "#";
+    default:
+        NOTREACHABLE;
+    }
+}
+void chunk_print_operand(OperandType type, byte index, FILE *stream)
+{
+    fprintf(stream, "%s%u", chunk_operand_type_to_str(type), index);
 }
 size_t chunk_print_instruction(Chunk *chunk, size_t offset, FILE *stream)
 {
@@ -111,8 +124,8 @@ size_t chunk_print_instruction(Chunk *chunk, size_t offset, FILE *stream)
     {
     case OP_GET_LOCAL:
     {
-        chunk_print_operand(chunk_instruction_at(chunk, ++offset), stream);
-        chunk_print_operand(chunk_instruction_at(chunk, ++offset), stream);
+        chunk_print_operand(OPERAND_IMMEDIATE, chunk_instruction_at(chunk, ++offset), stream);
+        chunk_print_operand(OPERAND_MEMORY, chunk_instruction_at(chunk, ++offset), stream);
         break;
     }
     case OP_LOOP:
@@ -132,7 +145,7 @@ size_t chunk_print_instruction(Chunk *chunk, size_t offset, FILE *stream)
     case OP_DEFINE_GLOBAL:
     case OP_CONSTANT:
     {
-        chunk_print_operand(chunk_instruction_at(chunk, ++offset), stream);
+        chunk_print_operand(OPERAND_MEMORY, chunk_instruction_at(chunk, ++offset), stream);
         break;
     }
     default:
