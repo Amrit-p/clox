@@ -5,10 +5,10 @@
 
 #include "helper.h"
 
-#include "log.h"
 #ifndef PROD
 #define LOG_IMPLEMENTATION
 #endif
+#include "log.h"
 
 #include "token.h"
 #include "lexer.h"
