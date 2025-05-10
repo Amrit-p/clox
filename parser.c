@@ -316,8 +316,9 @@ AST *parser_parse_comma(Parser *parser, AST *prefix)
     ast_push(exprs, prefix);
     while (parser->current_token.type == TOKEN_COMMA)
     {
+        Precedence precedence = parser_production(parser->current_token.type)->precedence;
         parser_advance(parser);
-        AST *child = parser_parse_expr(parser);
+        AST *child = parser_parse_precedence(parser, precedence + 1);
         if (child == NULL)
         {
             parser->panic_mode = 1;

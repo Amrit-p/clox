@@ -533,6 +533,8 @@ void ast_to_byte(AST *ast, Compiler *compiler)
         for (size_t i = 0; i < array_size(&ast->childs); i++)
         {
             ast_to_byte(array_at(&ast->childs, i), compiler);
+            if(i < array_size(&ast->childs)-1)
+                chunk_push(compiler->function->chunk, OP_POP);
         }
         break;
     }
