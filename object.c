@@ -76,8 +76,6 @@ void object_free(Obj *object)
     case OBJ_FUNCTION:
     {
         ObjFunction *function = (ObjFunction *)object;
-        ObjString *string = (ObjString *)function->name;
-        free(string);
         values_free(function->values);
         chunk_free(function->chunk);
         free(function);
