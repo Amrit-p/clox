@@ -19,7 +19,7 @@ typedef struct
     Value *slots;
 } CallFrame;
 
-typedef struct
+struct VM
 {
     Stack stack;
     Value *sp;
@@ -32,7 +32,7 @@ typedef struct
     char *file_path;
     CallFrame frames[FRAMES_MAX];
     int frame_count;
-} VM;
+};
 
 typedef enum
 {
@@ -45,6 +45,7 @@ typedef enum
     VM_TOO_FEW_ARGUMENTS,
     VM_TOO_MANY_ARGUMENTS,
 } VM_Error;
+typedef struct VM VM;
 
 VM *init_vm(Compiler *compiler);
 void vm_free(VM *vm);

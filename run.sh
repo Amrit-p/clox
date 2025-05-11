@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 program="compiled/fu.out"
-comman_cmd="$program examples/00.p"
+comman_cmd="$program examples/native-functions.p"
 if [ "$1" == "-val" ]; then
     make -B DEBUG=1 && valgrind --leak-check=full \
         --show-leak-kinds=all \

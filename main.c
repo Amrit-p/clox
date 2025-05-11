@@ -16,7 +16,7 @@
 #include "AST.h"
 #include "compiler.h"
 #include "VM.h"
-
+#include "native.h"
 
 #define ERROR_PREFIX "Error: "
 
@@ -178,6 +178,8 @@ int main(int argc, char *argv[])
         Compiler compiler = {0};
         init_compiler(&compiler, TYPE_SCRIPT);
         compiler.file_path = lexer->file_path;
+        log_info("setting up native's");
+        native_init(compiler.globals);
         log_info("converting AST to bytecode");
         ast_to_byte(ast, &compiler);
         free(source);

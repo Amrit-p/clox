@@ -25,6 +25,9 @@ void object_print(Value value)
     case OBJ_FUNCTION:
         fprintf(stdout, "<fn .%s>", AS_FUNCTION(value)->name == NULL ? "entry" : AS_FUNCTION(value)->name->chars);
         break;
+    case OBJ_NATIVE:
+        fprintf(stdout, "<native fn>");
+        break;
     default:
         NOTREACHABLE;
     }
@@ -81,6 +84,11 @@ void object_free(Obj *object)
         free(function);
         break;
     }
+    case OBJ_NATIVE:
+    {
+        free(object);
+        break;
+    }
     default:
         NOTREACHABLE;
     }
@@ -95,5 +103,40 @@ void objects_free()
         object_free(temp);
         temp = next;
     }
-    
+}
+
+ObjNative *new_native(NativeFn function, int arity)
+{
+    ObjNative *native = ALLOCATE_OBJ(ObjNative, OBJ_NATIVE);
+    native->function = function;
+    native->arity = arity;
+    return native;
+}
+
+char *value_typeof(Value value)
+{
+    switch (value.type)
+    {
+    case VAL_BOOL:
+        return "Boolean";
+    case VAL_NULL:
+        return "null";
+    case VAL_NUMBER:
+        return "Number";
+    case VAL_OBJ:
+    {
+        Obj *obj = AS_OBJ(value);
+        switch (obj->type)
+        {
+        case OBJ_STRING:
+            return "String";
+        case OBJ_FUNCTION:
+            return "Function";
+        default:
+            return "Object";
+        }
+    }
+    default:
+        NOTREACHABLE;
+    }
 }

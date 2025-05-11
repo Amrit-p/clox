@@ -32,33 +32,7 @@ void vm_free(VM *vm)
     free(vm);
 }
 
-char *value_typeof(Value value)
-{
-    switch (value.type)
-    {
-    case VAL_BOOL:
-        return "Boolean";
-    case VAL_NULL:
-        return "null";
-    case VAL_NUMBER:
-        return "Number";
-    case VAL_OBJ:
-    {
-        Obj *obj = AS_OBJ(value);
-        switch (obj->type)
-        {
-        case OBJ_STRING:
-            return "String";
-        case OBJ_FUNCTION:
-            return "Function";
-        default:
-            return "Object";
-        }
-    }
-    default:
-        return "UNKNOWN";
-    }
-}
+
 bool is_falsey(Value value)
 {
     return IS_NULL(value) ||
@@ -252,6 +226,20 @@ VM_Error vm_interpret(VM *vm)
                     call_frame->ip = function->chunk->items;
                     call_frame->slots = vm->sp - agr_count - 1;
                     frame = call_frame;
+                    continue;
+                }
+                case OBJ_NATIVE:
+                {
+                    ObjNative *native = AS_NATIVE(value);
+                    Value result = native->function(vm, vm->sp - agr_count);
+                    if(vm->message)
+                    {
+                        return VM_TYPE_ERROR;
+                    }
+                    vm->sp -= agr_count + 1;
+                    result.row = value.row;
+                    result.col = value.col;
+                    VM_STACK_PUSH(result);
                     continue;
                 }
                 default:

@@ -79,6 +79,9 @@ void value_print(Value value, uint8_t new_ln)
     case VAL_NUMBER:
         fprintf(stdout, "%g", AS_NUMBER(value));
         break;
+    case VAL_UNDEF:
+        fprintf(stdout, "undefined");
+        break;
     case VAL_OBJ:
         object_print(value);
         break;

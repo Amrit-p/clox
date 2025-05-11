@@ -533,7 +533,7 @@ void ast_to_byte(AST *ast, Compiler *compiler)
         for (size_t i = 0; i < array_size(&ast->childs); i++)
         {
             ast_to_byte(array_at(&ast->childs, i), compiler);
-            if(i < array_size(&ast->childs)-1)
+            if (i < array_size(&ast->childs) - 1)
                 chunk_push(compiler->function->chunk, OP_POP);
         }
         break;
@@ -804,7 +804,14 @@ void ast_to_byte(AST *ast, Compiler *compiler)
         {
             Value previous;
             table_get(compiler->globals, interned, &previous);
-            AST_REDEC_ERROR(compiler, ast->token, previous.row, previous.col);
+            if (IS_NATIVE(previous))
+            {
+                table_remove(compiler->globals, interned);
+            }
+            else
+            {
+                AST_REDEC_ERROR(compiler, ast->token, previous.row, previous.col);
+            }
         }
 
         ObjString *function_name = interned ? interned : cstr_to_objstr(name);
@@ -887,33 +894,59 @@ void ast_to_byte(AST *ast, Compiler *compiler)
         {
             arg_count = 1;
         }
-        if (IS_FUNCTION(value))
+        if (IS_FUNCTION(value) || IS_NATIVE(value))
         {
-            ObjFunction *function_obj = AS_FUNCTION(value);
 
-            if (function_obj->arity != arg_count)
+            int arity = 0;
+            if(IS_FUNCTION(value))
+            {
+                ObjFunction *function_obj = AS_FUNCTION(value);
+                arity = function_obj->arity;
+            }else{
+                ObjNative *native = AS_NATIVE(value);
+                arity = native->arity;
+            }
+
+            if (arity != arg_count)
             {
                 compiler->had_error = true;
-                fprintf(stderr, AST_ERROR_PREFIX_FORMART " expected %d arguments but got %d arguments\n",
+                fprintf(stderr, AST_ERROR_PREFIX_FORMART " Function '%.*s' expected %d arguments but got %d arguments\n",
                         compiler->file_path,
                         ast->left->token.row,
                         ast->left->token.col,
-                        function_obj->arity,
+                        (int)ast->left->token.length,
+                        ast->left->token.start,
+                        arity,
                         arg_count);
             }
             if (arg_count > 255)
             {
                 compiler->had_error = true;
-                fprintf(stderr, AST_ERROR_PREFIX_FORMART "can't have more then 255 arguments\n",
+                fprintf(stderr, AST_ERROR_PREFIX_FORMART " Function '%.*s' can't have more then 255 arguments\n",
                         compiler->file_path,
                         ast->left->token.row,
-                        ast->left->token.col);
+                        ast->left->token.col,
+                        (int)ast->left->token.length,
+                        ast->left->token.start
+                        );
             }
         }
         Value function_val = OBJ_VAL(function, ast->left->token.row, ast->left->token.col);
         chunk_push(compiler->function->chunk, OP_GET_GLOBAL);
         chunk_push(compiler->function->chunk, value_push(compiler->function->values, function_val));
-        ast_to_byte(ast->value, compiler);
+
+        if (arg_count == 1)
+        {
+            ast_to_byte(ast->value, compiler);
+        }
+        else if (arg_count > 1)
+        {
+            for (int i = 0; i < arg_count; i++)
+            {
+                AST *arg = array_at(&ast->value->childs, i);
+                ast_to_byte(arg, compiler);
+            }
+        }
         chunk_push(compiler->function->chunk, OP_CALL);
         chunk_push(compiler->function->chunk, (byte)arg_count);
         break;
